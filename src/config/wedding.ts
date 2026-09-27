@@ -19,6 +19,6 @@ export const wedding={
   {id:'waleema',name:'Waleema',subtitle:'The Moonlit Celebration',date:'2027-01-14',day:'Thursday',time:'7:00 – 10:00 PM',venue:'Viceroy, Hall No. 1',address:'',dressCode:'Elegant & Modest',message:'A graceful evening beneath the moon, shared with those we cherish.',mapUrl:'https://www.google.com/maps/search/?api=1&query=Viceroy+by+Mughaleazam+Lahore',calendarDescription:'Zurain and Abeeha — Waleema reception'}
  ] satisfies WeddingEvent[],story:[],gallery:[],
  whatsapp:{contactNumber:'923333409401',shareMessage:"You are warmly invited to Zurain and Abeeha's Waleema reception in Lahore — Thursday, 14 January 2027."},
- rsvp:{deadline:'2026-12-20',maxGuests:8},musicPath:'/audio/chaap-tilak.m4a',social:{title:'Waleema Reception — Zurain & Abeeha',description:'Save the date for our Waleema. Lahore · 14 January 2027.',image:'/social-preview.svg',themeColor:'#F7F1E8'},
+ rsvp:{deadline:'2026-12-20',maxGuests:8},musicPath:'/audio/mere-rashke-qamar.m4a',social:{title:'Waleema Reception — Zurain & Abeeha',description:'Save the date for our Waleema. Lahore · 14 January 2027.',image:'/social-preview.svg',themeColor:'#F7F1E8'},
  sections:{story:false,gallery:false,rsvp:true}
 } as const;

@@ -11,8 +11,10 @@ import { Blessing, Countdown, EventCard, EventSchedule } from '@/components/even
 import RsvpCard from '@/components/rsvp/RsvpCard';
 import ClosingStage from '@/components/closing/ClosingStage';
 
-const MUSIC_START = 65;
-const MUSIC_END = 85;
+const MUSIC_SEGMENTS = [
+  { start: 115, end: 136 }, // 1:55 – 2:16
+  { start: 186, end: 215 }, // 3:06 – 3:35
+] as const;
 
 export default function Invitation() {
   const [locale, setLocale] = useState<Locale>('en');
@@ -20,6 +22,7 @@ export default function Invitation() {
   const [contentReady, setContentReady] = useState(false);
   const audio = useRef<HTMLAudioElement>(null);
   const primed = useRef(false);
+  const segmentIndex = useRef(0);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -62,9 +65,11 @@ export default function Invitation() {
     const prime = () => {
       if (primed.current) return;
       try {
-        if (Math.abs(el.currentTime - MUSIC_START) > 0.35) {
-          el.currentTime = MUSIC_START;
+        const start = MUSIC_SEGMENTS[0].start;
+        if (Math.abs(el.currentTime - start) > 0.35) {
+          el.currentTime = start;
         }
+        segmentIndex.current = 0;
         primed.current = true;
       } catch {
         // ignore seek until more data is available
@@ -83,28 +88,42 @@ export default function Invitation() {
     };
   }, []);
 
+  const seekToSegment = (index: number) => {
+    const el = audio.current;
+    if (!el) return;
+    const next = ((index % MUSIC_SEGMENTS.length) + MUSIC_SEGMENTS.length) % MUSIC_SEGMENTS.length;
+    segmentIndex.current = next;
+    el.currentTime = MUSIC_SEGMENTS[next].start;
+    primed.current = true;
+  };
+
   const startMusic = () => {
     const el = audio.current;
     if (!el) return;
-    if (!primed.current || Math.abs(el.currentTime - MUSIC_START) > 1) {
-      el.currentTime = MUSIC_START;
-      primed.current = true;
+    const seg = MUSIC_SEGMENTS[segmentIndex.current] ?? MUSIC_SEGMENTS[0];
+    if (!primed.current || el.currentTime < seg.start - 0.5 || el.currentTime >= seg.end) {
+      seekToSegment(0);
     }
     el.play().then(() => setPlaying(true)).catch(() => {});
   };
 
   const handleAudioTimeUpdate = () => {
-    if (!audio.current) return;
-    if (audio.current.currentTime >= MUSIC_END || audio.current.currentTime < MUSIC_START) {
-      audio.current.currentTime = MUSIC_START;
+    const el = audio.current;
+    if (!el) return;
+    const seg = MUSIC_SEGMENTS[segmentIndex.current] ?? MUSIC_SEGMENTS[0];
+    if (el.currentTime >= seg.end) {
+      seekToSegment(segmentIndex.current + 1);
+    } else if (el.currentTime < seg.start - 0.5) {
+      el.currentTime = seg.start;
     }
   };
 
   const music = () => {
     if (!audio.current) return;
     if (audio.current.paused) {
-      if (audio.current.currentTime < MUSIC_START || audio.current.currentTime >= MUSIC_END) {
-        audio.current.currentTime = MUSIC_START;
+      const seg = MUSIC_SEGMENTS[segmentIndex.current] ?? MUSIC_SEGMENTS[0];
+      if (audio.current.currentTime < seg.start || audio.current.currentTime >= seg.end) {
+        seekToSegment(segmentIndex.current);
       }
       audio.current.play().then(() => setPlaying(true)).catch(() => {});
     } else {
