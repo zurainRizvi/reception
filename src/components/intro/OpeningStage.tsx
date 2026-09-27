@@ -16,47 +16,65 @@ type Props = {
 
 type Phase = 'awaitingTap' | 'curtain' | 'hero';
 
-const INVITE_IN = 4;
-const INVITE_OUT = 6;
-const HERO_IN = 6;
+/** Wall-clock overlay schedule (ms after tap) — independent of video buffering. */
+const INVITE_IN_MS = 4000;
+const HERO_IN_MS = 6000;
 
 export default function OpeningStage({ locale, onBegin }: Props) {
   const curtainRef = useRef<HTMLVideoElement>(null);
   const beganRef = useRef(false);
-  const rafRef = useRef<number | null>(null);
+  const timersRef = useRef<number[]>([]);
 
   const [phase, setPhase] = useState<Phase>('awaitingTap');
-  const [curtainTime, setCurtainTime] = useState(0);
+  const [showInvite, setShowInvite] = useState(false);
+  const [showHeroCard, setShowHeroCard] = useState(false);
 
   const curtainSrc = `${theme.videos.opening}?v=${theme.videos.version}`;
   const posterSrc = `${theme.videos.openingPoster}?v=${theme.videos.version}`;
 
-  const showInvite = phase === 'curtain' && curtainTime >= INVITE_IN && curtainTime < INVITE_OUT;
-  const showHero =
-    phase === 'hero' || (phase === 'curtain' && curtainTime >= HERO_IN);
   const showTap = phase === 'awaitingTap';
   const playing = phase === 'curtain' || phase === 'hero';
+  const showHero = showHeroCard || phase === 'hero';
 
-  useEffect(() => {
-    if (phase !== 'curtain') {
-      if (rafRef.current != null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
+  const clearTimers = () => {
+    timersRef.current.forEach((id) => window.clearTimeout(id));
+    timersRef.current = [];
+  };
+
+  useEffect(() => () => clearTimers(), []);
+
+  const playCurtain = async () => {
+    const video = curtainRef.current;
+    if (!video) {
+      setPhase('hero');
+      setShowHeroCard(true);
+      setShowInvite(false);
       return;
     }
 
-    const sync = () => {
-      const video = curtainRef.current;
-      if (video) setCurtainTime(video.currentTime);
-      rafRef.current = requestAnimationFrame(sync);
-    };
-    rafRef.current = requestAnimationFrame(sync);
-    return () => {
-      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    };
-  }, [phase]);
+    try {
+      video.pause();
+      video.muted = true;
+      video.playsInline = true;
+      if (video.readyState >= 1) {
+        video.currentTime = 0;
+      } else {
+        await new Promise<void>((resolve) => {
+          const onMeta = () => {
+            video.removeEventListener('loadedmetadata', onMeta);
+            resolve();
+          };
+          video.addEventListener('loadedmetadata', onMeta);
+        });
+        video.currentTime = 0;
+      }
+      await video.play();
+    } catch {
+      setPhase('hero');
+      setShowHeroCard(true);
+      setShowInvite(false);
+    }
+  };
 
   const begin = (e?: React.SyntheticEvent) => {
     e?.preventDefault();
@@ -66,20 +84,24 @@ export default function OpeningStage({ locale, onBegin }: Props) {
 
     onBegin();
     setPhase('curtain');
-    setCurtainTime(0);
+    setShowInvite(false);
+    setShowHeroCard(false);
+    clearTimers();
 
-    const video = curtainRef.current;
-    if (!video) {
-      setPhase('hero');
-      return;
-    }
+    timersRef.current.push(
+      window.setTimeout(() => setShowInvite(true), INVITE_IN_MS),
+      window.setTimeout(() => {
+        setShowInvite(false);
+        setShowHeroCard(true);
+      }, HERO_IN_MS),
+    );
 
-    video.currentTime = 0;
-    video.muted = true;
-    video.play().catch(() => setPhase('hero'));
+    void playCurtain();
   };
 
   const handleCurtainEnded = () => {
+    setShowInvite(false);
+    setShowHeroCard(true);
     setPhase('hero');
   };
 
@@ -128,14 +150,14 @@ export default function OpeningStage({ locale, onBegin }: Props) {
       )}
 
       <AnimatePresence>
-        {showInvite && (
+        {showInvite && !showHero && (
           <motion.div
             key="invite"
             className="opening-invite-overlay"
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
           >
             <p className="opening-invite-host">Mrs. Hameed Rizvi</p>
             <p className="opening-invite-body">
@@ -221,7 +243,7 @@ export default function OpeningStage({ locale, onBegin }: Props) {
               left: 0,
               right: 0,
               bottom: 'max(88px, calc(env(safe-area-inset-bottom, 0px) + 14vh))',
-              zIndex: 4,
+              zIndex: 5,
               display: 'flex',
               alignItems: 'flex-end',
               justifyContent: 'center',

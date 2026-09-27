@@ -441,9 +441,9 @@ h2 {
   pointer-events: none;
   background: linear-gradient(
     180deg,
-    rgba(10, 4, 6, 0.18) 0%,
-    rgba(10, 4, 6, 0.08) 42%,
-    rgba(10, 4, 6, 0.28) 100%
+    rgba(10, 4, 6, 0.42) 0%,
+    rgba(10, 4, 6, 0.22) 42%,
+    rgba(10, 4, 6, 0.5) 100%
   );
 }
 

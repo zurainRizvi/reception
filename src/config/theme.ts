@@ -58,7 +58,7 @@ export const theme = {
     openingPoster: '/videos/opening-poster.jpg',
     closing: '/videos/closing.mp4',
     closingPoster: '/videos/closing-poster.jpg',
-    version: '20260927d',
+    version: '20260927e',
   },
 } as const;
 

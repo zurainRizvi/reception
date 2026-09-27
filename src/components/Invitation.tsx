@@ -121,7 +121,8 @@ export default function Invitation() {
         locale={locale}
         onBegin={() => {
           startMusic();
-          setContentReady(true);
+          // Mount the rest after the opening overlays so mobile stays smooth for 0–6s.
+          window.setTimeout(() => setContentReady(true), 6000);
         }}
       />
 
