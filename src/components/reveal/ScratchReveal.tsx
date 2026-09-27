@@ -186,7 +186,7 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
             marginBottom: 8,
           }}
         >
-          {isRtl ? 'تاریخ محفوظ رکھیں' : 'SAVE THE DATE'}
+          {isRtl ? 'محبت و مسرت کا خاص دن' : 'SAVE THE AUSPICIOUS DATE'}
         </p>
         <h2
           style={{
@@ -280,25 +280,38 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  padding: '36px 22px 28px',
-                  gap: 2,
+                  // Extra side padding keeps labels inside the heart’s narrow lower lobes
+                  padding: '40px 34px 34px',
+                  gap: 1,
                   pointerEvents: 'none',
+                  boxSizing: 'border-box',
                 }}
               >
-                <p style={{ margin: 0, fontSize: 10, letterSpacing: '0.24em', color: pink.main, fontWeight: 600 }}>
+                <p style={{ margin: 0, fontSize: 9, letterSpacing: '0.2em', color: pink.main, fontWeight: 600 }}>
                   {isRtl ? 'جمعرات' : 'THURSDAY'}
                 </p>
-                <div style={{ textAlign: 'center', marginTop: 4 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 5, color: theme.colors.ink }}>
-                    <span style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 46, lineHeight: 1 }}>14</span>
-                    <span style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18 }}>·</span>
-                    <span style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18, letterSpacing: '0.08em' }}>JAN</span>
+                <div style={{ textAlign: 'center', marginTop: 2 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 4, color: theme.colors.ink }}>
+                    <span style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 42, lineHeight: 1 }}>14</span>
+                    <span style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 16 }}>·</span>
+                    <span style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 16, letterSpacing: '0.06em' }}>JAN</span>
                   </div>
-                  <p style={{ margin: '4px 0 0', color: theme.colors.inkSoft, letterSpacing: '0.18em', fontSize: 11 }}>2027</p>
+                  <p style={{ margin: '2px 0 0', color: theme.colors.inkSoft, letterSpacing: '0.16em', fontSize: 10 }}>2027</p>
                 </div>
-                <p style={{ margin: '6px 0 0', color: theme.colors.muted, fontSize: 10, letterSpacing: '0.14em' }}>
-                  {isRtl ? 'ولیمہ · لاہور' : 'WALEEMA · LAHORE'}
-                </p>
+                <div
+                  style={{
+                    marginTop: 4,
+                    color: theme.colors.muted,
+                    fontSize: 9,
+                    letterSpacing: isRtl ? '0.04em' : '0.1em',
+                    lineHeight: 1.35,
+                    textAlign: 'center',
+                    maxWidth: '100%',
+                  }}
+                >
+                  <p style={{ margin: 0 }}>{isRtl ? 'ولیمہ' : 'WALEEMA'}</p>
+                  <p style={{ margin: '1px 0 0' }}>{isRtl ? 'لاہور' : 'LAHORE'}</p>
+                </div>
               </div>
 
               {!isRevealed && (
