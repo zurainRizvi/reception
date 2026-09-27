@@ -428,6 +428,53 @@ h2 {
   animation: tapPulse 2.2s ease-in-out infinite;
 }
 
+.opening-invite-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 26px;
+  text-align: center;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(10, 4, 6, 0.18) 0%,
+    rgba(10, 4, 6, 0.08) 42%,
+    rgba(10, 4, 6, 0.28) 100%
+  );
+}
+
+.opening-invite-host {
+  margin: 0 0 12px;
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 500;
+  font-style: italic;
+  font-size: clamp(34px, 9vw, 48px);
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+  color: #f0d48a;
+  text-shadow:
+    0 0 8px rgba(232, 200, 117, 0.95),
+    0 0 22px rgba(212, 175, 87, 0.75),
+    0 0 42px rgba(198, 161, 91, 0.45),
+    0 2px 18px rgba(0, 0, 0, 0.45);
+}
+
+.opening-invite-body {
+  margin: 0;
+  max-width: 18em;
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 400;
+  font-size: clamp(18px, 4.6vw, 24px);
+  line-height: 1.45;
+  letter-spacing: 0.03em;
+  color: rgba(255, 248, 238, 0.94);
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.4);
+}
+
 @keyframes tapPulse {
   0%,
   100% {

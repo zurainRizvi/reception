@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { theme } from '@/config/theme';
 import { Ornament } from '@/components/shared/Ornament';
@@ -14,36 +14,73 @@ type Props = {
   onBegin: () => void;
 };
 
-export default function OpeningStage({ locale, onBegin }: Props) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const beganRef = useRef(false);
-  const [playing, setPlaying] = useState(false);
-  const [showHero, setShowHero] = useState(false);
+type Phase = 'awaitingTap' | 'curtain' | 'hero';
 
-  const videoSrc = `${theme.videos.opening}?v=${theme.videos.version}`;
+const INVITE_IN = 4;
+const INVITE_OUT = 6;
+const HERO_IN = 6;
+
+export default function OpeningStage({ locale, onBegin }: Props) {
+  const curtainRef = useRef<HTMLVideoElement>(null);
+  const beganRef = useRef(false);
+  const rafRef = useRef<number | null>(null);
+
+  const [phase, setPhase] = useState<Phase>('awaitingTap');
+  const [curtainTime, setCurtainTime] = useState(0);
+
+  const curtainSrc = `${theme.videos.opening}?v=${theme.videos.version}`;
   const posterSrc = `${theme.videos.openingPoster}?v=${theme.videos.version}`;
+
+  const showInvite = phase === 'curtain' && curtainTime >= INVITE_IN && curtainTime < INVITE_OUT;
+  const showHero =
+    phase === 'hero' || (phase === 'curtain' && curtainTime >= HERO_IN);
+  const showTap = phase === 'awaitingTap';
+  const playing = phase === 'curtain' || phase === 'hero';
+
+  useEffect(() => {
+    if (phase !== 'curtain') {
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      return;
+    }
+
+    const sync = () => {
+      const video = curtainRef.current;
+      if (video) setCurtainTime(video.currentTime);
+      rafRef.current = requestAnimationFrame(sync);
+    };
+    rafRef.current = requestAnimationFrame(sync);
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    };
+  }, [phase]);
 
   const begin = (e?: React.SyntheticEvent) => {
     e?.preventDefault();
     e?.stopPropagation();
     if (beganRef.current) return;
     beganRef.current = true;
-    setPlaying(true);
-    onBegin();
 
-    const video = videoRef.current;
+    onBegin();
+    setPhase('curtain');
+    setCurtainTime(0);
+
+    const video = curtainRef.current;
     if (!video) {
-      setShowHero(true);
+      setPhase('hero');
       return;
     }
 
     video.currentTime = 0;
     video.muted = true;
-    video.play().catch(() => setShowHero(true));
+    video.play().catch(() => setPhase('hero'));
   };
 
-  const handleEnded = () => {
-    setShowHero(true);
+  const handleCurtainEnded = () => {
+    setPhase('hero');
   };
 
   return (
@@ -56,13 +93,13 @@ export default function OpeningStage({ locale, onBegin }: Props) {
       }}
     >
       <video
-        ref={videoRef}
-        src={videoSrc}
+        ref={curtainRef}
+        src={curtainSrc}
         poster={posterSrc}
         playsInline
         muted
         preload="auto"
-        onEnded={handleEnded}
+        onEnded={handleCurtainEnded}
         style={{
           position: 'absolute',
           inset: 0,
@@ -73,7 +110,6 @@ export default function OpeningStage({ locale, onBegin }: Props) {
         }}
       />
 
-      {/* Poster fallback while idle */}
       {!playing && (
         <img
           src={posterSrc}
@@ -92,7 +128,25 @@ export default function OpeningStage({ locale, onBegin }: Props) {
       )}
 
       <AnimatePresence>
-        {!playing && (
+        {showInvite && (
+          <motion.div
+            key="invite"
+            className="opening-invite-overlay"
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <p className="opening-invite-host">Mrs. Hameed Rizvi</p>
+            <p className="opening-invite-body">
+              Cordially invites you to the Waleema Reception of her Son.
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showTap && (
           <motion.div
             key="tap"
             initial={{ opacity: 0, y: 12 }}
@@ -225,7 +279,7 @@ export default function OpeningStage({ locale, onBegin }: Props) {
                   letterSpacing: '0.04em',
                 }}
               >
-                {locale === 'ur' ? 'آپ کو ولیمہ کی دعوت دیتے ہیں' : 'Invite You to Their Waleema'}
+                {locale === 'ur' ? 'شادی کر رہے ہیں' : 'Are Getting Married'}
               </p>
             </div>
           </motion.div>
