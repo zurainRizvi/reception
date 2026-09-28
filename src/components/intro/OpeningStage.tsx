@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { theme } from '@/config/theme';
 import { Ornament } from '@/components/shared/Ornament';
@@ -12,28 +12,34 @@ import { t } from '@/config/translations';
 type Props = {
   locale: Locale;
   onBegin: () => void;
+  /** Fired when the hero card is shown so content below can mount before SWIPE DOWN. */
+  onHeroReady?: () => void;
 };
 
 type Phase = 'awaitingTap' | 'curtain' | 'hero';
 
 /** Wall-clock overlay schedule (ms after tap) — independent of video buffering. */
-const INVITE_IN_MS = 4000;
-const HERO_IN_MS = 6000;
+const INVITE_IN_MS = 2000; // Mrs. Hameed after 2s of video
+const INVITE_OUT_MS = 6000; // holds through the 6th second
+const HERO_IN_MS = 7000; // Zurain & Abeeha on the 7th second
 
-export default function OpeningStage({ locale, onBegin }: Props) {
+export default function OpeningStage({ locale, onBegin, onHeroReady }: Props) {
   const curtainRef = useRef<HTMLVideoElement>(null);
   const beganRef = useRef(false);
+  const heroReadyRef = useRef(false);
   const timersRef = useRef<number[]>([]);
+  const beginRef = useRef<() => void>(() => {});
+  const unbindBeginRef = useRef<(() => void) | null>(null);
 
   const [phase, setPhase] = useState<Phase>('awaitingTap');
   const [showInvite, setShowInvite] = useState(false);
   const [showHeroCard, setShowHeroCard] = useState(false);
+  const [videoStarted, setVideoStarted] = useState(false);
 
   const curtainSrc = `${theme.videos.opening}?v=${theme.videos.version}`;
   const posterSrc = `${theme.videos.openingPoster}?v=${theme.videos.version}`;
 
   const showTap = phase === 'awaitingTap';
-  const playing = phase === 'curtain' || phase === 'hero';
   const showHero = showHeroCard || phase === 'hero';
 
   const clearTimers = () => {
@@ -41,48 +47,67 @@ export default function OpeningStage({ locale, onBegin }: Props) {
     timersRef.current = [];
   };
 
-  useEffect(() => () => clearTimers(), []);
-
-  const playCurtain = async () => {
-    const video = curtainRef.current;
-    if (!video) {
-      setPhase('hero');
-      setShowHeroCard(true);
-      setShowInvite(false);
-      return;
-    }
-
-    try {
-      video.pause();
-      video.muted = true;
-      video.playsInline = true;
-      if (video.readyState >= 1) {
-        video.currentTime = 0;
-      } else {
-        await new Promise<void>((resolve) => {
-          const onMeta = () => {
-            video.removeEventListener('loadedmetadata', onMeta);
-            resolve();
-          };
-          video.addEventListener('loadedmetadata', onMeta);
-        });
-        video.currentTime = 0;
-      }
-      await video.play();
-    } catch {
-      setPhase('hero');
-      setShowHeroCard(true);
-      setShowInvite(false);
+  const revealHero = () => {
+    setShowInvite(false);
+    setShowHeroCard(true);
+    if (!heroReadyRef.current) {
+      heroReadyRef.current = true;
+      onHeroReady?.();
     }
   };
 
-  const begin = (e?: React.SyntheticEvent) => {
-    e?.preventDefault();
-    e?.stopPropagation();
+  useEffect(() => () => {
+    clearTimers();
+    unbindBeginRef.current?.();
+  }, []);
+
+  const attachCurtain = useCallback((node: HTMLVideoElement | null) => {
+    curtainRef.current = node;
+    if (!node) return;
+    // iOS ignores a muted video that only has the React prop; the DOM property
+    // and playsinline attributes must exist before play().
+    node.muted = true;
+    node.defaultMuted = true;
+    node.volume = 0;
+    node.playsInline = true;
+    node.setAttribute('muted', '');
+    node.setAttribute('playsinline', '');
+    node.setAttribute('webkit-playsinline', '');
+  }, []);
+
+  const playCurtainNow = () => {
+    const video = curtainRef.current;
+    if (!video) return;
+    video.muted = true;
+    video.defaultMuted = true;
+    video.volume = 0;
+    video.playsInline = true;
+    video.setAttribute('muted', '');
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
+    // Must run in the tap turn. Awaiting metadata, seeking, or pausing first
+    // drops iOS user activation, so play() is rejected and the curtain stays shut.
+    const pending = video.play();
+    void pending?.catch(() => {
+      const retry = () => {
+        video.muted = true;
+        void video.play().catch(() => {});
+      };
+      video.addEventListener('canplay', retry, { once: true });
+      video.addEventListener('loadeddata', retry, { once: true });
+    });
+  };
+
+  const begin = () => {
     if (beganRef.current) return;
     beganRef.current = true;
 
-    onBegin();
+    playCurtainNow();
+    try {
+      onBegin();
+    } catch {
+      // A failed music seek must not cancel the curtain.
+    }
     setPhase('curtain');
     setShowInvite(false);
     setShowHeroCard(false);
@@ -90,18 +115,47 @@ export default function OpeningStage({ locale, onBegin }: Props) {
 
     timersRef.current.push(
       window.setTimeout(() => setShowInvite(true), INVITE_IN_MS),
+      window.setTimeout(() => setShowInvite(false), INVITE_OUT_MS),
       window.setTimeout(() => {
-        setShowInvite(false);
-        setShowHeroCard(true);
+        revealHero();
       }, HERO_IN_MS),
     );
-
-    void playCurtain();
   };
 
+  useEffect(() => {
+    beginRef.current = begin;
+  });
+
+  const attachBeginButton = useCallback((node: HTMLButtonElement | null) => {
+    unbindBeginRef.current?.();
+    unbindBeginRef.current = null;
+    if (!node) return;
+
+    let startX = 0;
+    let startY = 0;
+    const onStart = (event: TouchEvent) => {
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      startX = touch.clientX;
+      startY = touch.clientY;
+    };
+    const onEnd = (event: TouchEvent) => {
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      if (Math.hypot(touch.clientX - startX, touch.clientY - startY) > 18) return;
+      // iOS in-app browsers only treat touchend as the media user-gesture.
+      beginRef.current();
+    };
+    node.addEventListener('touchstart', onStart, { passive: true });
+    node.addEventListener('touchend', onEnd);
+    unbindBeginRef.current = () => {
+      node.removeEventListener('touchstart', onStart);
+      node.removeEventListener('touchend', onEnd);
+    };
+  }, []);
+
   const handleCurtainEnded = () => {
-    setShowInvite(false);
-    setShowHeroCard(true);
+    revealHero();
     setPhase('hero');
   };
 
@@ -112,15 +166,21 @@ export default function OpeningStage({ locale, onBegin }: Props) {
         position: 'relative',
         width: '100%',
         background: '#1a0508',
+        // Let swipe / wheel reach the scrolling <main>; the video must not capture them.
+        touchAction: 'pan-y',
       }}
     >
       <video
-        ref={curtainRef}
+        ref={attachCurtain}
         src={curtainSrc}
         poster={posterSrc}
         playsInline
         muted
         preload="auto"
+        controls={false}
+        disablePictureInPicture
+        onPlay={() => setVideoStarted(true)}
+        onPlaying={() => setVideoStarted(true)}
         onEnded={handleCurtainEnded}
         style={{
           position: 'absolute',
@@ -129,10 +189,11 @@ export default function OpeningStage({ locale, onBegin }: Props) {
           height: '100%',
           objectFit: 'cover',
           zIndex: 0,
+          pointerEvents: 'none',
         }}
       />
 
-      {!playing && (
+      {!videoStarted && (
         <img
           src={posterSrc}
           alt=""
@@ -161,7 +222,7 @@ export default function OpeningStage({ locale, onBegin }: Props) {
           >
             <p className="opening-invite-host">Mrs. Hameed Rizvi</p>
             <p className="opening-invite-body">
-              Cordially invites you to the Waleema Reception of her Son.
+              Cordially invites you to the Wedding Ceremony of her beloved Son.
             </p>
           </motion.div>
         )}
@@ -187,6 +248,7 @@ export default function OpeningStage({ locale, onBegin }: Props) {
             }}
           >
             <button
+              ref={attachBeginButton}
               type="button"
               className="tap-begin"
               onClick={begin}
@@ -235,9 +297,9 @@ export default function OpeningStage({ locale, onBegin }: Props) {
         {showHero && (
           <motion.div
             key="hero"
-            initial={{ opacity: 0, y: '48%' }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.95, ease: [0.22, 1, 0.36, 1] }}
+            initial={{ y: 80 }}
+            animate={{ y: 0 }}
+            transition={{ duration: 1.25, ease: [0.22, 0.82, 0.28, 1] }}
             style={{
               position: 'absolute',
               left: 0,
@@ -251,6 +313,10 @@ export default function OpeningStage({ locale, onBegin }: Props) {
               pointerEvents: 'none',
             }}
           >
+            {/*
+              Glass stays opacity 1 always — never fade opacity on backdrop-filter
+              (that causes the clear→blur glitch). Slide uses transform only.
+            */}
             <div
               style={{
                 width: '100%',
@@ -258,12 +324,15 @@ export default function OpeningStage({ locale, onBegin }: Props) {
                 background: theme.colors.creamGlass,
                 backdropFilter: 'blur(14px)',
                 WebkitBackdropFilter: 'blur(14px)',
+                isolation: 'isolate',
+                opacity: 1,
                 border: `1px solid ${theme.colors.goldLine}`,
                 borderRadius: '24px',
                 padding: '28px 22px 24px',
                 boxShadow: '0 20px 50px rgba(0,0,0,0.35)',
                 textAlign: 'center',
                 color: theme.colors.ink,
+                transform: 'translateZ(0)',
               }}
             >
               <p
@@ -287,9 +356,30 @@ export default function OpeningStage({ locale, onBegin }: Props) {
                   lineHeight: 1.05,
                 }}
               >
-                <em style={{ fontStyle: 'italic' }}>Abeeha</em>
-                <b style={{ color: theme.colors.gold, fontWeight: 500, margin: '0 10px' }}>&</b>
-                <em style={{ fontStyle: 'italic' }}>Zurain</em>
+                <motion.em
+                  style={{ fontStyle: 'italic', display: 'inline-block' }}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.15, duration: 0.55 }}
+                >
+                  Zurain
+                </motion.em>
+                <motion.b
+                  style={{ color: theme.colors.gold, fontWeight: 500, margin: '0 10px', display: 'inline-block' }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.35, duration: 0.4 }}
+                >
+                  &
+                </motion.b>
+                <motion.em
+                  style={{ fontStyle: 'italic', display: 'inline-block' }}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.5, duration: 0.55 }}
+                >
+                  Abeeha
+                </motion.em>
               </h1>
               <Ornament />
               <p

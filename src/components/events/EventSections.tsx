@@ -1,34 +1,21 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { CalendarDays, MapPin } from 'lucide-react';
-import { wedding, type WeddingEvent } from '@/config/wedding';
+import React, { useEffect, useRef, useState } from 'react';
+import { CalendarDays, Map, MapPin } from 'lucide-react';
+import { wedding, type EventId, type WeddingEvent } from '@/config/wedding';
 import { theme } from '@/config/theme';
 import { t, type Locale } from '@/config/translations';
 import { Card, Ornament } from '@/components/shared/Ornament';
 import { Petals } from '@/components/shared/Petals';
-import { BotanicalClimber, EventCornerOrnament, ScheduleBow, TopCanopyArch } from '@/components/events/Botanicals';
+import { ScheduleBow, TopCanopyArch } from '@/components/events/Botanicals';
 import { schedulesData } from '@/components/events/schedulesData';
+import { addEventToNativeCalendar } from '@/utils/calendar';
 
-function calendar(e: WeddingEvent) {
-  const d = e.date.replaceAll('-', '');
-  const body = [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'BEGIN:VEVENT',
-    `DTSTART:${d}T183000`,
-    `DTEND:${d}T220000`,
-    `SUMMARY:${e.name} — Zurain & Abeeha`,
-    `LOCATION:${e.venue}`,
-    'END:VEVENT',
-    'END:VCALENDAR',
-  ].join('\r\n');
-  const url = URL.createObjectURL(new Blob([body], { type: 'text/calendar' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${e.id}.ics`;
-  a.click();
-  URL.revokeObjectURL(url);
+/** Play each event intro at most once per page load. */
+const playedEventIntros = new Set<EventId>();
+
+function mediaUrl(path: string) {
+  return `${path}?v=${theme.videos.version}`;
 }
 
 export function Blessing({ locale }: { locale: Locale }) {
@@ -56,8 +43,8 @@ export function Blessing({ locale }: { locale: Locale }) {
       </h2>
       <p className="copy" style={{ color: theme.colors.inkSoft, maxWidth: 330, margin: '0 auto', fontSize: isRtl ? 16 : 17, lineHeight: isRtl ? 1.9 : 1.7, fontFamily: isRtl ? "'Amiri', serif" : undefined }}>
         {isRtl
-          ? 'اللہ کے نام سے ہم آپ کو اپنی ولیمہ کی پُروقار محفل میں شریک ہونے کی دعوت دیتے ہیں۔'
-          : 'In the name of Allah, we warmly invite you to celebrate with us at our Waleema reception.'}
+          ? 'اللہ کے نام سے ہم ایک حسین سفر کا آغاز کرتے ہیں اور آپ کو اس لمحے میں شریک ہونے کی دعوت دیتے ہیں۔'
+          : 'In the name of Allah, we begin a beautiful journey and invite you to share this precious moment with us.'}
       </p>
       <blockquote
         dir="rtl"
@@ -170,7 +157,7 @@ export function Countdown({ locale }: { locale: Locale }) {
             marginBottom: 8,
           }}
         >
-          {isRtl ? 'تاریخ محفوظ رکھیں' : 'SAVE THE DATE'}
+          {isRtl ? 'ابدیت تک' : 'UNTIL FOREVER BEGINS'}
         </p>
         <h2
           style={{
@@ -181,21 +168,7 @@ export function Countdown({ locale }: { locale: Locale }) {
             lineHeight: isRtl ? 1.65 : 1.15,
           }}
         >
-          {isRtl ? (
-            <>
-              دن گن رہے ہیں۔
-              <em style={{ color: accent, display: 'block', fontStyle: 'normal', fontSize: '0.62em', marginTop: 8 }}>
-                ولیمہ کی شام تک
-              </em>
-            </>
-          ) : (
-            <>
-              Counting the days.
-              <em style={{ color: accent, display: 'block', fontStyle: 'italic', fontSize: '0.55em', marginTop: 6 }}>
-                Until our Waleema reception
-              </em>
-            </>
-          )}
+          {isRtl ? 'دن گن رہے ہیں۔' : 'Counting the days.'}
         </h2>
         <Ornament color={accent} />
         <div
@@ -237,109 +210,526 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     ? date.toLocaleString('ur-PK', { month: 'long' })
     : date.toLocaleString('en-GB', { month: 'long' }).toUpperCase();
   const ev = theme.events[e.id];
+  const freezeLast = ev.freezeLastFrame;
+  const videoSrc = mediaUrl(ev.video);
+  const posterSrc = mediaUrl(ev.poster);
+  const bgSrc = mediaUrl(ev.bgImage);
+  const TEXT_AT = 2.3;
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const failSafeRef = useRef<number | null>(null);
+  const textTimerRef = useRef<number | null>(null);
+  const startedRef = useRef(false);
+  const textRevealedRef = useRef(playedEventIntros.has(e.id));
+
+  const [showText, setShowText] = useState(() => {
+    if (playedEventIntros.has(e.id)) return true;
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      playedEventIntros.add(e.id);
+      return true;
+    }
+    return false;
+  });
+  const [panelIn, setPanelIn] = useState(() => playedEventIntros.has(e.id));
+  const [videoDone, setVideoDone] = useState(() => playedEventIntros.has(e.id));
+  // Keep video mounted for freeze-last-frame events; others can drop it after fade.
+  const [keepVideo, setKeepVideo] = useState(() => freezeLast || !playedEventIntros.has(e.id));
+
+  // Slide glass up from bottom without touching opacity (keeps blur stable).
+  useEffect(() => {
+    if (!showText) return;
+    let cancelled = false;
+    const start = window.setTimeout(() => {
+      if (cancelled) return;
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        setPanelIn(true);
+        return;
+      }
+      setPanelIn(false);
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          if (!cancelled) setPanelIn(true);
+        });
+      });
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(start);
+    };
+  }, [showText]);
+
+  const revealText = () => {
+    if (textRevealedRef.current) return;
+    textRevealedRef.current = true;
+    playedEventIntros.add(e.id);
+    setShowText(true);
+  };
+
+  const finishVideo = () => {
+    if (failSafeRef.current != null) {
+      window.clearTimeout(failSafeRef.current);
+      failSafeRef.current = null;
+    }
+    if (textTimerRef.current != null) {
+      window.clearTimeout(textTimerRef.current);
+      textTimerRef.current = null;
+    }
+    revealText();
+    setVideoDone(true);
+    const video = videoRef.current;
+    if (freezeLast && video) {
+      try {
+        if (Number.isFinite(video.duration) && video.duration > 0) {
+          video.currentTime = Math.max(0, video.duration - 0.05);
+        }
+      } catch {
+        // ignore seek errors
+      }
+      video.pause();
+      return;
+    }
+    // Soft swap to still background for mehndi / waleema
+    window.setTimeout(() => setKeepVideo(false), 650);
+  };
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Revisit: skip intro, park on last frame for Baraat, or drop video for others.
+    if (playedEventIntros.has(e.id) && freezeLast) {
+      const park = () => {
+        try {
+          if (Number.isFinite(video.duration) && video.duration > 0) {
+            video.currentTime = Math.max(0, video.duration - 0.05);
+          }
+        } catch {
+          // ignore
+        }
+        video.pause();
+      };
+      if (video.readyState >= 1) park();
+      else video.addEventListener('loadedmetadata', park, { once: true });
+      return;
+    }
+  }, [e.id, freezeLast]);
+
+  useEffect(() => {
+    if (showText && videoDone) return;
+    if (playedEventIntros.has(e.id) && showText) return;
+
+    const root = rootRef.current;
+    const video = videoRef.current;
+    if (!root || !video) return;
+
+    const clearTimers = () => {
+      if (failSafeRef.current != null) {
+        window.clearTimeout(failSafeRef.current);
+        failSafeRef.current = null;
+      }
+      if (textTimerRef.current != null) {
+        window.clearTimeout(textTimerRef.current);
+        textTimerRef.current = null;
+      }
+    };
+
+    const onTimeUpdate = () => {
+      if (video.currentTime >= TEXT_AT) revealText();
+    };
+
+    const tryPlay = () => {
+      if (startedRef.current || (playedEventIntros.has(e.id) && showText)) return;
+      startedRef.current = true;
+      video.muted = true;
+      video.defaultMuted = true;
+      video.playsInline = true;
+      video.setAttribute('muted', '');
+      video.setAttribute('playsinline', '');
+      video.setAttribute('webkit-playsinline', '');
+
+      textTimerRef.current = window.setTimeout(() => revealText(), Math.round(TEXT_AT * 1000));
+      failSafeRef.current = window.setTimeout(() => finishVideo(), 10000);
+
+      const pending = video.play();
+      void pending?.catch(() => {
+        revealText();
+        finishVideo();
+      });
+    };
+
+    video.addEventListener('timeupdate', onTimeUpdate);
+    video.addEventListener('ended', finishVideo);
+    video.addEventListener('error', finishVideo);
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        if (entry.intersectionRatio >= 0.85) tryPlay();
+      },
+      { threshold: [0, 0.5, 0.85] }
+    );
+
+    observer.observe(root);
+    return () => {
+      observer.disconnect();
+      video.removeEventListener('timeupdate', onTimeUpdate);
+      video.removeEventListener('ended', finishVideo);
+      video.removeEventListener('error', finishVideo);
+      clearTimers();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once per event card
+  }, [e.id]);
+
+  const showStillBg = videoDone && !freezeLast;
 
   return (
     <Card
       className={`event ${e.id}`}
       style={{
-        background: ev.bg,
+        backgroundColor: e.id === 'mehndi' ? '#FDF8E7' : e.id === 'baraat' ? '#2A080C' : '#0A1F24',
+        backgroundImage: showStillBg ? `url(${bgSrc})` : undefined,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center top',
+        backgroundRepeat: 'no-repeat',
         borderTop: `1px solid ${ev.border}`,
         borderBottom: `1px solid ${ev.border}`,
-        color: theme.colors.ink,
+        color: ev.cardInk,
         position: 'relative',
         overflow: 'hidden',
-        padding: isRtl ? '120px 24px 88px' : '136px 28px 84px',
+        padding: 0,
       }}
     >
-      <BotanicalClimber type={e.id} />
-      <Petals amount={16} tone={e.id} />
-      <EventCornerOrnament type={e.id} isRtl={isRtl} />
-      <p
-        className="eyebrow"
-        style={{
-          color: theme.colors.gold,
-          position: 'relative',
-          zIndex: 2,
-          letterSpacing: isRtl ? '0.1em' : undefined,
-        }}
-      >
-        0{i + 1} · {isRtl ? n[1] : n[0].toUpperCase()}
-      </p>
-      <h2
-        style={{
-          color: theme.colors.ink,
-          position: 'relative',
-          zIndex: 2,
-          margin: '10px 0',
-          fontFamily: isRtl ? "'Amiri', serif" : undefined,
-          lineHeight: isRtl ? 1.55 : undefined,
-        }}
-      >
-        {isRtl ? n[1] : n[0]}
-        <em
+      <div ref={rootRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} aria-hidden />
+
+      {keepVideo && (
+        <img
+          src={posterSrc}
+          alt=""
+          aria-hidden
           style={{
-            color: ev.accent,
-            display: 'block',
-            fontSize: isRtl ? '0.62em' : '0.55em',
-            marginTop: 10,
-            fontStyle: isRtl ? 'normal' : 'italic',
-            lineHeight: isRtl ? 1.7 : undefined,
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            objectPosition: 'center top',
+            zIndex: 1,
+            pointerEvents: 'none',
           }}
-        >
-          {isRtl ? s[1] : s[0]}
-        </em>
-      </h2>
-      <Ornament />
-      <div className="date" style={{ position: 'relative', zIndex: 2, margin: '28px 0', justifyContent: 'center' }}>
-        <strong style={{ color: theme.colors.ink, fontFamily: "'Cormorant Garamond', serif", fontSize: 88, lineHeight: 0.85 }}>
-          {date.getDate()}
-        </strong>
-        <span style={{ textAlign: isRtl ? 'right' : 'left', color: theme.colors.inkSoft }}>
-          {dayName}
-          <small
+        />
+      )}
+
+      {keepVideo && (
+        <video
+          ref={videoRef}
+          src={videoSrc}
+          poster={posterSrc}
+          playsInline
+          muted
+          preload="auto"
+          controls={false}
+          disablePictureInPicture
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            objectPosition: 'center top',
+            zIndex: 2,
+            pointerEvents: 'none',
+            opacity: showStillBg ? 0 : 1,
+            transition: 'opacity 0.65s ease',
+          }}
+        />
+      )}
+
+      {showText && (
+        <>
+          {/* Soft center vignette — illustration stays visible */}
+          <div
+            aria-hidden
             style={{
-              display: 'block',
-              marginTop: 6,
-              letterSpacing: isRtl ? '0.06em' : '0.18em',
-              color: theme.colors.gold,
-              fontFamily: isRtl ? "'Amiri', serif" : undefined,
-              fontSize: isRtl ? 13 : undefined,
+              position: 'absolute',
+              inset: 0,
+              zIndex: 3,
+              background:
+                e.id === 'mehndi'
+                  ? 'radial-gradient(ellipse at center, rgba(255,250,240,0.18) 0%, transparent 70%)'
+                  : 'radial-gradient(ellipse at center, rgba(0,0,0,0.22) 0%, transparent 72%)',
+              pointerEvents: 'none',
+            }}
+          />
+
+          <div style={{ position: 'absolute', inset: 0, zIndex: 4, pointerEvents: 'none' }}>
+            <Petals amount={16} tone={e.id} />
+          </div>
+
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: 5,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              // Baraat: lower so the panel covers from mid-couple down past the belly
+              justifyContent: e.id === 'baraat' ? 'flex-start' : 'center',
+              padding:
+                e.id === 'baraat'
+                  ? isRtl
+                    ? '52% 20px 18px'
+                    : '52% 22px 18px'
+                  : isRtl
+                    ? '24px 20px'
+                    : '24px 22px',
+              boxSizing: 'border-box',
+              pointerEvents: 'auto',
             }}
           >
-            {monthLabel} · {date.getFullYear()}
-          </small>
-        </span>
+            {/*
+              Full-opacity glass + transform-only slide (bottom → rest).
+              Never animate opacity on backdrop-filter — that causes blur glitches.
+            */}
+            <div
+              dir={isRtl ? 'rtl' : 'ltr'}
+              lang={isRtl ? 'ur' : 'en'}
+              style={{
+                width: '100%',
+                maxWidth: isRtl ? 292 : 300,
+                padding: isRtl ? '16px 14px 18px' : '18px 16px 20px',
+                borderRadius: 18,
+                background: ev.panelBg,
+                border: `1px solid ${ev.panelBorder}`,
+                boxShadow:
+                  e.id === 'mehndi'
+                    ? '0 8px 28px rgba(61, 52, 41, 0.1)'
+                    : '0 10px 32px rgba(0, 0, 0, 0.28)',
+                backdropFilter: 'blur(22px) saturate(1.08)',
+                WebkitBackdropFilter: 'blur(22px) saturate(1.08)',
+                isolation: 'isolate',
+                opacity: 1,
+                transform: panelIn ? 'translate3d(0, 0, 0)' : 'translate3d(0, 72px, 0)',
+                transition: 'transform 1.35s cubic-bezier(0.22, 0.82, 0.28, 1)',
+                willChange: 'transform',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                textAlign: 'center',
+                overflowWrap: 'anywhere',
+                wordBreak: 'normal',
+              }}
+            >
+          <p
+            className="eyebrow"
+            style={{
+              color: ev.cardAccent,
+              position: 'relative',
+              zIndex: 2,
+              letterSpacing: isRtl ? '0.08em' : '0.28em',
+              fontSize: isRtl ? 12 : 11,
+              fontWeight: 700,
+              fontFamily: isRtl ? "'Amiri', serif" : undefined,
+              maxWidth: '100%',
+              textAlign: 'center',
+              width: '100%',
+            }}
+          >
+            0{i + 1}
+          </p>
+          <h2
+            style={{
+              color: ev.cardInk,
+              position: 'relative',
+              zIndex: 2,
+              margin: '8px 0 2px',
+              fontFamily: isRtl ? "'Amiri', serif" : "'Cormorant Garamond', serif",
+              fontSize: isRtl ? 'clamp(26px, 7vw, 34px)' : 'clamp(32px, 8vw, 42px)',
+              fontWeight: 600,
+              lineHeight: isRtl ? 1.55 : 1.08,
+              letterSpacing: isRtl ? '0' : '0.01em',
+              maxWidth: '100%',
+              overflowWrap: 'anywhere',
+              textAlign: 'center',
+            }}
+          >
+            {isRtl ? n[1] : n[0]}
+            <em
+              style={{
+                color: ev.cardAccent,
+                display: 'block',
+                fontSize: isRtl ? '0.55em' : '0.42em',
+                marginTop: 8,
+                fontStyle: isRtl ? 'normal' : 'italic',
+                fontWeight: isRtl ? 600 : 500,
+                lineHeight: isRtl ? 1.7 : 1.35,
+                letterSpacing: isRtl ? '0' : '0.03em',
+                maxWidth: '100%',
+                overflowWrap: 'anywhere',
+              }}
+            >
+              {isRtl ? s[1] : s[0]}
+            </em>
+          </h2>
+          <Ornament color={ev.cardAccent} />
+          <div
+            className="date"
+            style={{
+              position: 'relative',
+              zIndex: 2,
+              margin: '12px 0 8px',
+              justifyContent: 'center',
+              flexWrap: 'wrap',
+              gap: isRtl ? 8 : 10,
+              maxWidth: '100%',
+            }}
+          >
+            <strong
+              style={{
+                color: ev.cardInk,
+                fontFamily: "'Cormorant Garamond', serif",
+                fontSize: isRtl ? 'clamp(52px, 13vw, 68px)' : 'clamp(64px, 15vw, 80px)',
+                lineHeight: 0.85,
+                fontWeight: 600,
+              }}
+            >
+              {date.getDate()}
+            </strong>
+            <span
+              style={{
+                textAlign: isRtl ? 'right' : 'left',
+                color: ev.cardInkSoft,
+                fontSize: 15,
+                fontWeight: 600,
+                lineHeight: isRtl ? 1.55 : 1.25,
+                fontFamily: isRtl ? "'Amiri', serif" : undefined,
+                maxWidth: isRtl ? 140 : undefined,
+              }}
+            >
+              {dayName}
+              <small
+                style={{
+                  display: 'block',
+                  marginTop: 4,
+                  letterSpacing: isRtl ? '0.02em' : '0.12em',
+                  color: ev.cardAccent,
+                  fontFamily: isRtl ? "'Amiri', serif" : undefined,
+                  fontSize: isRtl ? 12 : 11,
+                  fontWeight: 700,
+                  lineHeight: isRtl ? 1.6 : 1.3,
+                  overflowWrap: 'anywhere',
+                }}
+              >
+                {monthLabel} · {date.getFullYear()}
+              </small>
+            </span>
+          </div>
+          <p
+            className="event-time"
+            style={{
+              color: ev.cardAccent,
+              position: 'relative',
+              zIndex: 2,
+              fontFamily: isRtl ? "'Amiri', serif" : "'DM Sans', sans-serif",
+              letterSpacing: isRtl ? '0' : '0.04em',
+              lineHeight: isRtl ? 1.75 : 1.4,
+              fontSize: isRtl ? 14 : 13,
+              fontWeight: 600,
+              margin: '2px 0 0',
+              maxWidth: '100%',
+              overflowWrap: 'anywhere',
+              textAlign: 'center',
+            }}
+          >
+            {timeLabel}
+          </p>
+          <div
+            className="venue"
+            style={{
+              color: ev.cardInk,
+              position: 'relative',
+              zIndex: 2,
+              fontSize: 14,
+              fontWeight: 600,
+              marginTop: 6,
+              fontFamily: isRtl ? "'Amiri', serif" : undefined,
+              lineHeight: isRtl ? 1.7 : 1.4,
+              maxWidth: '100%',
+              overflowWrap: 'anywhere',
+              flexDirection: 'column',
+              gap: 2,
+            }}
+          >
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+              <MapPin size={15} color={ev.cardAccent} />
+              <span>{e.venue}</span>
+            </span>
+            {e.address ? (
+              <span style={{ display: 'block', fontSize: 12, fontWeight: 500, color: ev.cardInkSoft, marginTop: 2 }}>
+                {e.address}
+              </span>
+            ) : null}
+          </div>
+          <div
+            className="actions"
+            style={{
+              position: 'relative',
+              zIndex: 2,
+              display: 'flex',
+              gap: 8,
+              justifyContent: 'center',
+              flexWrap: 'wrap',
+              marginTop: 12,
+              width: '100%',
+            }}
+          >
+            <a
+              href={e.mapUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="btn soft"
+              style={{
+                background: ev.buttonBg,
+                borderColor: ev.buttonBorder,
+                color: ev.buttonText,
+                fontWeight: 600,
+                fontSize: isRtl ? 12 : 11,
+                fontFamily: isRtl ? "'Amiri', serif" : undefined,
+                minHeight: 38,
+                padding: '8px 12px',
+              }}
+            >
+              <Map size={13} /> {t(locale, 'maps')}
+            </a>
+            <button
+              type="button"
+              className="btn soft"
+              onClick={() => addEventToNativeCalendar(e)}
+              style={{
+                background: ev.buttonBg,
+                borderColor: ev.buttonBorder,
+                color: ev.buttonText,
+                fontWeight: 600,
+                fontSize: isRtl ? 12 : 11,
+                fontFamily: isRtl ? "'Amiri', serif" : undefined,
+                minHeight: 38,
+                padding: '8px 12px',
+              }}
+            >
+              <CalendarDays size={13} /> {t(locale, 'calendar')}
+            </button>
+          </div>
+        </div>
       </div>
-      <p
-        className="event-time"
-        style={{
-          color: theme.colors.gold,
-          position: 'relative',
-          zIndex: 2,
-          fontFamily: isRtl ? "'Amiri', serif" : undefined,
-          letterSpacing: isRtl ? '0.04em' : undefined,
-          lineHeight: isRtl ? 1.7 : undefined,
-        }}
-      >
-        {dayName} · {timeLabel}
-      </p>
-      <div className="venue" style={{ color: theme.colors.inkSoft, position: 'relative', zIndex: 2 }}>
-        <MapPin size={16} color={theme.colors.gold} />
-        <span>{e.venue}</span>
-      </div>
-      <div className="actions" style={{ position: 'relative', zIndex: 2, display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap', marginTop: 16 }}>
-        <a href={e.mapUrl} target="_blank" rel="noreferrer" className="btn soft">
-          {t(locale, 'maps')}
-        </a>
-        <button type="button" className="btn soft" onClick={() => calendar(e)}>
-          <CalendarDays size={14} /> {t(locale, 'calendar')}
-        </button>
-      </div>
+        </>
+      )}
     </Card>
   );
 }
 
-export function EventSchedule({ eventId, locale }: { eventId: WeddingEvent['id']; locale: Locale }) {
+export function EventSchedule({ eventId, locale }: { eventId: 'mehndi' | 'baraat' | 'waleema'; locale: Locale }) {
   const data = schedulesData[eventId];
   const isRtl = locale === 'ur';
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
@@ -347,19 +737,24 @@ export function EventSchedule({ eventId, locale }: { eventId: WeddingEvent['id']
 
   return (
     <Card
-      className={`event-schedule ${eventId}${isRtl ? ' is-urdu' : ''}`}
+      className={`event-schedule ${eventId}`}
       style={{
         background: ev.bg,
         borderTop: `1px solid ${ev.border}`,
         position: 'relative',
-        overflow: 'hidden',
+        overflow: 'visible',
         textAlign: isRtl ? 'right' : 'left',
         padding: isRtl ? '108px 22px 180px' : '120px 28px 168px',
         color: theme.colors.ink,
       }}
     >
       <TopCanopyArch type={eventId} />
-      <Petals amount={14} tone={eventId} />
+      <Petals
+        amount={14}
+        tone={
+          eventId === 'waleema' ? 'waleema-schedule' : eventId === 'baraat' ? 'baraat-schedule' : eventId
+        }
+      />
       <ScheduleBow id={eventId} isRtl={isRtl} />
 
       <div style={{ width: '100%', textAlign: 'center', marginBottom: isRtl ? 24 : 28, position: 'relative', zIndex: 2 }}>
@@ -424,11 +819,14 @@ export function EventSchedule({ eventId, locale }: { eventId: WeddingEvent['id']
         {data.items.map((item, idx) => {
           const isSelected = selectedIdx === idx;
           return (
-            <div
+            <button
               key={idx}
+              type="button"
               onClick={() => setSelectedIdx(selectedIdx === idx ? null : idx)}
               style={{
                 position: 'relative',
+                display: 'block',
+                width: '100%',
                 marginBottom: idx === data.items.length - 1 ? 40 : 18,
                 cursor: 'pointer',
                 padding: isRtl ? '12px 14px 14px' : '10px 14px',
@@ -436,6 +834,10 @@ export function EventSchedule({ eventId, locale }: { eventId: WeddingEvent['id']
                 background: isSelected ? 'rgba(198,161,91,0.12)' : 'transparent',
                 border: isSelected ? `1px solid ${theme.colors.goldLine}` : '1px solid transparent',
                 transition: 'background 0.25s ease, border-color 0.25s ease',
+                font: 'inherit',
+                color: 'inherit',
+                textAlign: isRtl ? 'right' : 'left',
+                touchAction: 'manipulation',
               }}
             >
               <div
@@ -490,7 +892,7 @@ export function EventSchedule({ eventId, locale }: { eventId: WeddingEvent['id']
               >
                 {isRtl ? item.descUr : item.descEn}
               </p>
-            </div>
+            </button>
           );
         })}
       </div>

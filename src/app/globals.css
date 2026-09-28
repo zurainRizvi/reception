@@ -25,8 +25,10 @@ body {
   font-family: 'DM Sans', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
+  /* pan only — blocks pinch / double-tap zoom on supporting browsers */
   touch-action: pan-y;
   -ms-touch-action: pan-y;
+  overscroll-behavior: none;
 }
 
 input,
@@ -91,19 +93,16 @@ main {
   transform: none !important;
 }
 
-/* Schedules need room under the last Celebration item; Urdu needs auto height */
+/* Schedules need room under the last item — grow past one viewport on all locales */
 .card.page-snap.event-schedule {
-  justify-content: flex-start;
-  padding-bottom: max(168px, calc(env(safe-area-inset-bottom, 0px) + 120px));
-}
-
-.card.page-snap.event-schedule.is-urdu {
   height: auto;
   min-height: var(--app-h, 100svh);
   max-height: none;
   overflow: visible;
+  justify-content: flex-start;
   scroll-snap-align: start;
   scroll-snap-stop: always;
+  padding-bottom: max(168px, calc(env(safe-area-inset-bottom, 0px) + 120px));
 }
 
 [dir='rtl'] .eyebrow {
@@ -138,6 +137,7 @@ main.snap-paused {
 main.snap-paused .closing-stage {
   scroll-snap-align: none;
   scroll-snap-stop: normal;
+  pointer-events: none;
 }
 
 .rsvp form {
@@ -148,6 +148,20 @@ main.snap-paused .closing-stage {
 .rsvp textarea {
   scroll-margin: 0;
   scroll-margin-block: 0;
+}
+
+@keyframes rsvp-autofill-start {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.rsvp input:-webkit-autofill {
+  animation-name: rsvp-autofill-start;
+  animation-duration: 0.01s;
 }
 
 .page-snap > :not(.petals):not(.botanical-climber-container):not(.hero-birds) {
@@ -332,6 +346,16 @@ h2 {
   z-index: 1;
 }
 
+button,
+a,
+input,
+textarea,
+select,
+label,
+[data-tap] {
+  touch-action: manipulation;
+}
+
 .petals i {
   position: absolute;
   top: -20px;
@@ -339,7 +363,29 @@ h2 {
   height: 14px;
   border-radius: 40% 60% 55% 45%;
   background: #fff;
-  opacity: 0.7;
+  opacity: 0;
+  will-change: transform, opacity;
+  animation-name: petalFall;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+}
+
+@keyframes petalFall {
+  0% {
+    transform: translate3d(0, -80px, 0) rotate(0deg);
+    opacity: 0;
+  }
+  33% {
+    opacity: 0.85;
+  }
+  66% {
+    opacity: 0.65;
+  }
+  100% {
+    transform: translate3d(var(--petal-drift, 0px), 980px, 0) rotate(260deg);
+    opacity: 0;
+  }
 }
 
 .petals.gold-white i {
@@ -390,28 +436,112 @@ h2 {
   background: #b07884;
 }
 
+.petals.mehndi i {
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(198, 161, 91, 0.35);
+}
+
 .petals.mehndi i:nth-child(3n) {
-  background: #B7D0B0;
+  background: #E0C075;
 }
 
 .petals.mehndi i:nth-child(3n + 1) {
-  background: #7BA874;
+  background: #C6A15B;
+}
+
+.petals.mehndi i:nth-child(5n) {
+  background: #FFF8E8;
+}
+
+.petals.mehndi i:nth-child(7n) {
+  background: #fff;
+}
+
+.petals.baraat i {
+  background: #C62828;
+  box-shadow: 0 2px 6px rgba(180, 40, 40, 0.4);
 }
 
 .petals.baraat i:nth-child(3n) {
-  background: #E2B6B6;
+  background: #E53935;
 }
 
 .petals.baraat i:nth-child(3n + 1) {
-  background: #C48484;
+  background: #B71C1C;
+}
+
+.petals.baraat i:nth-child(5n) {
+  background: #FFCDD2;
+}
+
+.petals.baraat i:nth-child(7n) {
+  background: #EF5350;
+}
+
+.petals.waleema i {
+  /* Event card: white + soft teal */
+  background: #FFFFFF;
+  box-shadow: 0 2px 6px rgba(58, 104, 104, 0.28);
 }
 
 .petals.waleema i:nth-child(3n) {
-  background: #B5C7DD;
+  background: #7AA3A3;
 }
 
 .petals.waleema i:nth-child(3n + 1) {
-  background: #7E9BC0;
+  background: #FFFFFF;
+}
+
+.petals.waleema i:nth-child(5n) {
+  background: #5C8F8F;
+}
+
+.petals.waleema i:nth-child(7n) {
+  background: #A8C4C4;
+}
+
+.petals.baraat-schedule i {
+  /* Schedule: white + red */
+  background: #FFFFFF;
+  box-shadow: 0 2px 6px rgba(180, 40, 40, 0.28);
+}
+
+.petals.baraat-schedule i:nth-child(3n) {
+  background: #E53935;
+}
+
+.petals.baraat-schedule i:nth-child(3n + 1) {
+  background: #FFFFFF;
+}
+
+.petals.baraat-schedule i:nth-child(5n) {
+  background: #C62828;
+}
+
+.petals.baraat-schedule i:nth-child(7n) {
+  background: #FFCDD2;
+}
+
+.petals.waleema-schedule i {
+  /* Schedule: white + soft teal */
+  background: #FFFFFF;
+  box-shadow: 0 2px 6px rgba(58, 104, 104, 0.28);
+}
+
+.petals.waleema-schedule i:nth-child(3n) {
+  background: #7AA3A3;
+}
+
+.petals.waleema-schedule i:nth-child(3n + 1) {
+  background: #FFFFFF;
+}
+
+.petals.waleema-schedule i:nth-child(5n) {
+  background: #A8C4C4;
+}
+
+.petals.waleema-schedule i:nth-child(7n) {
+  background: #5C8F8F;
 }
 
 .opening-stage,
@@ -422,6 +552,13 @@ h2 {
 .opening-stage.page-snap,
 .closing-stage.page-snap {
   overflow: hidden;
+  touch-action: pan-y;
+}
+
+/* Full-bleed videos must not steal swipe / wheel from the scrolling <main>. */
+.opening-stage video,
+.closing-stage video {
+  pointer-events: none;
 }
 
 .tap-begin {
@@ -461,6 +598,25 @@ h2 {
     0 0 22px rgba(212, 175, 87, 0.75),
     0 0 42px rgba(198, 161, 91, 0.45),
     0 2px 18px rgba(0, 0, 0, 0.45);
+  animation: hostGlow 2.4s ease-in-out infinite;
+}
+
+@keyframes hostGlow {
+  0%,
+  100% {
+    text-shadow:
+      0 0 6px rgba(232, 200, 117, 0.7),
+      0 0 16px rgba(212, 175, 87, 0.45),
+      0 0 28px rgba(198, 161, 91, 0.25),
+      0 2px 18px rgba(0, 0, 0, 0.45);
+  }
+  50% {
+    text-shadow:
+      0 0 12px rgba(255, 236, 180, 1),
+      0 0 28px rgba(240, 212, 138, 0.95),
+      0 0 52px rgba(212, 175, 87, 0.7),
+      0 2px 18px rgba(0, 0, 0, 0.4);
+  }
 }
 
 .opening-invite-body {
@@ -593,6 +749,31 @@ h2 {
   animation: foilShimmer 2.6s ease-in-out infinite;
 }
 
+.scratch-surface {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.scratch-card-visual,
+.scratch-card-visual *,
+.scratch-hint,
+.scratch-hint *,
+.foil-shimmer,
+.petals,
+.petals *,
+.botanical-climber-container,
+.botanical-climber-container *,
+.garland-svg-strand,
+.garland-svg-strand *,
+.schedule-bow,
+.schedule-bow *,
+.hero-birds,
+.hero-birds * {
+  pointer-events: none !important;
+}
+
 .scratch-hint {
   position: absolute;
   z-index: 4;
@@ -617,11 +798,11 @@ h2 {
   height: 100%;
 }
 
-.scratch-heart-live {
-  animation: heartGlowPink 2.4s ease-in-out infinite;
+.scratch-card-live {
+  animation: cardGlowPink 2.4s ease-in-out infinite;
 }
 
-@keyframes heartGlowPink {
+@keyframes cardGlowPink {
   0%,
   100% {
     filter: drop-shadow(0 12px 18px rgba(176, 120, 132, 0.22)) drop-shadow(0 0 0 rgba(232, 196, 203, 0));
@@ -683,10 +864,10 @@ h2 {
 }
 
 .scroll-hint-label {
-  font-size: 9px;
-  letter-spacing: 0.32em;
+  font-size: 11px;
+  letter-spacing: 0.28em;
   font-weight: 700;
-  color: rgba(255, 248, 232, 0.92);
+  color: rgba(255, 248, 232, 0.95);
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
 }
 
@@ -754,9 +935,10 @@ h2 {
   .foil-live-pink,
   .foil-shimmer,
   .scratch-hint,
-  .scratch-heart-live,
+  .scratch-card-live,
   .scroll-hint-chevron,
-  .scroll-hint::before {
+  .scroll-hint::before,
+  .petals i {
     animation: none !important;
   }
 }
