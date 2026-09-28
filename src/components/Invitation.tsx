@@ -8,7 +8,7 @@ import { type Locale } from '@/config/translations';
 import OpeningStage from '@/components/intro/OpeningStage';
 import ScratchReveal from '@/components/reveal/ScratchReveal';
 import { Blessing, Countdown, EventCard, EventSchedule } from '@/components/events/EventSections';
-import RsvpCard from '@/components/rsvp/RsvpCard';
+import FarewellCard from '@/components/closing/FarewellCard';
 import ClosingStage from '@/components/closing/ClosingStage';
 
 /** Loop 0:27 – 1:45 of the invitation track. */
@@ -111,7 +111,7 @@ export default function Invitation() {
     const releaseTightScrollers = () => {
       main.querySelectorAll('.card.page-snap').forEach((node) => {
         if (!(node instanceof HTMLElement)) return;
-        if (node.classList.contains('event-schedule') || node.classList.contains('rsvp')) return;
+        if (node.classList.contains('event-schedule') || node.classList.contains('rsvp') || node.classList.contains('farewell')) return;
         const overflows = node.scrollHeight > node.clientHeight + 4;
         node.style.overflowY = overflows ? 'auto' : 'hidden';
       });
@@ -278,7 +278,7 @@ export default function Invitation() {
               <EventSchedule eventId={e.id} locale={locale} />
             </React.Fragment>
           ))}
-          <RsvpCard locale={locale} />
+          <FarewellCard locale={locale} />
           <ClosingStage locale={locale} />
         </div>
       )}

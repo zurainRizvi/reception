@@ -40,7 +40,7 @@ export function Card({
   children: React.ReactNode;
 }) {
   // Schedule/RSVP pages are tall snap targets — fade-in makes content look like it glitches on land.
-  const skipEnter = /\b(event-schedule|rsvp)\b/.test(className);
+  const skipEnter = /\b(event-schedule|rsvp|farewell)\b/.test(className);
 
   return (
     <motion.section

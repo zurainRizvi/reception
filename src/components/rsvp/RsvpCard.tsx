@@ -5,10 +5,9 @@ import { theme } from '@/config/theme';
 import { wedding } from '@/config/wedding';
 import { rsvpService } from '@/services/rsvp';
 import { type Locale } from '@/config/translations';
-import { Card, Ornament } from '@/components/shared/Ornament';
+import { Ornament } from '@/components/shared/Ornament';
 import { openWhatsAppChat } from '@/utils/whatsapp';
 
-const RSVP_BG = 'linear-gradient(180deg, #1A0A0E 0%, #14060a 55%, #0E0508 100%)';
 const RSVP_INK = '#F7F1E8';
 const RSVP_MUTED = 'rgba(247, 241, 232, 0.72)';
 const RSVP_LINE = 'rgba(212, 175, 87, 0.35)';
@@ -28,7 +27,6 @@ export default function RsvpCard({ locale }: { locale: Locale }) {
   const resumeTimer = useRef<number | null>(null);
   const pinUntil = useRef(0);
   const focusedInRsvp = useRef(false);
-  const [pageFloor, setPageFloor] = useState(0);
   const [response, setResponse] = useState<'yes' | 'no' | null>(null);
   const [guestCount, setGuestCount] = useState('');
   const [selectedEvents, setSelectedEvents] = useState<string[]>(['waleema']);
@@ -110,13 +108,6 @@ export default function RsvpCard({ locale }: { locale: Locale }) {
     window.setTimeout(correctAutofillJump, 1000);
   };
 
-  const holdPageHeight = () => {
-    const section = document.getElementById('rsvp-section');
-    if (!section) return;
-    const h = Math.ceil(section.getBoundingClientRect().height);
-    setPageFloor((prev) => (h > prev ? h : prev));
-  };
-
   useEffect(() => {
     const section = document.getElementById('rsvp-section');
     const main = getMain();
@@ -194,8 +185,6 @@ export default function RsvpCard({ locale }: { locale: Locale }) {
   }, []);
 
   const chooseAttendance = (val: 'yes' | 'no') => {
-    // Collapsing the guest fields must not pull the closing page up.
-    holdPageHeight();
     savedScroll.current = null;
     pinUntil.current = 0;
     setSnapEnabled(true);
@@ -243,7 +232,6 @@ _Zurain & Abeeha's Waleema Invitation_`;
     savedScroll.current = null;
     pinUntil.current = 0;
     setSnapEnabled(true);
-    holdPageHeight();
     setSubmittedData(payload);
     try {
       await rsvpService.submit({ ...payload, guests: Number(payload.guests) });
@@ -307,23 +295,29 @@ _Zurain & Abeeha's Waleema Invitation_`;
   });
 
   return (
-    <Card
-      className="rsvp"
+    <div
+      className="rsvp rsvp-overlay"
       id="rsvp-section"
       style={{
-        background: RSVP_BG,
-        borderTop: `1px solid ${RSVP_LINE}`,
         width: '100%',
-        padding: '40px 22px max(72px, calc(env(safe-area-inset-bottom, 0px) + 40px))',
-        position: 'relative',
-        overflow: 'visible',
+        maxWidth: 400,
+        maxHeight: 'min(92vh, 760px)',
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        WebkitOverflowScrolling: 'touch',
+        overscrollBehavior: 'contain',
+        background: 'linear-gradient(180deg, rgba(26,10,14,0.94) 0%, rgba(14,5,8,0.96) 100%)',
+        border: `1px solid ${RSVP_LINE}`,
+        borderRadius: 22,
+        boxShadow: '0 28px 70px rgba(0,0,0,0.5)',
+        padding: '28px 20px max(28px, calc(env(safe-area-inset-bottom, 0px) + 18px))',
         color: RSVP_INK,
-        justifyContent: 'flex-start',
-        minHeight: pageFloor > 0 ? `max(${pageFloor}px, var(--app-h, 100svh))` : undefined,
         overflowAnchor: 'none',
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)',
       }}
     >
-      <div style={{ width: '100%', maxWidth: 380, margin: '0 auto' }}>
+      <div style={{ width: '100%', maxWidth: 360, margin: '0 auto' }}>
         <p
           className="eyebrow"
           style={{
@@ -594,6 +588,6 @@ _Zurain & Abeeha's Waleema Invitation_`;
           </div>
         )}
       </div>
-    </Card>
+    </div>
   );
 }

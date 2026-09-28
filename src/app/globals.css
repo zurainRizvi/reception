@@ -80,7 +80,19 @@ main {
   justify-content: safe center;
 }
 
-/* RSVP grows with the form, but stays a snap target so it isn't skipped */
+/* Farewell note page — full viewport, centered cream card on dark silk */
+.card.page-snap.farewell {
+  height: var(--app-h, 100svh);
+  min-height: var(--app-h, 100svh);
+  max-height: var(--app-h, 100svh);
+  overflow: hidden;
+  justify-content: safe center;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  transform: none !important;
+}
+
+/* Legacy RSVP page rule kept for overlay form inside closing */
 .card.page-snap.rsvp {
   height: auto;
   min-height: var(--app-h, 100svh);
@@ -133,11 +145,10 @@ main.snap-paused {
   overflow-anchor: none;
 }
 
-/* While typing/autofilling, don't let the closing page become a snap neighbor. */
+/* While typing/autofilling RSVP on the closing video, don't re-snap away. */
 main.snap-paused .closing-stage {
   scroll-snap-align: none;
   scroll-snap-stop: normal;
-  pointer-events: none;
 }
 
 .rsvp form {
@@ -148,6 +159,20 @@ main.snap-paused .closing-stage {
 .rsvp textarea {
   scroll-margin: 0;
   scroll-margin-block: 0;
+}
+
+.rsvp-overlay {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(212, 175, 87, 0.45) transparent;
+}
+
+.rsvp-overlay::-webkit-scrollbar {
+  width: 4px;
+}
+
+.rsvp-overlay::-webkit-scrollbar-thumb {
+  background: rgba(212, 175, 87, 0.45);
+  border-radius: 999px;
 }
 
 @keyframes rsvp-autofill-start {
@@ -399,6 +424,25 @@ label,
 
 .petals.gold-white i:nth-child(7n) {
   background: #fff8e8;
+}
+
+/* Farewell page — soft white petals on dark silk */
+.petals.farewell-white i {
+  background: #FFFFFF;
+  box-shadow: 0 2px 8px rgba(255, 248, 238, 0.28);
+}
+
+.petals.farewell-white i:nth-child(3n) {
+  background: #FFF8EE;
+}
+
+.petals.farewell-white i:nth-child(5n) {
+  background: #FFFFFF;
+  opacity: 0.9;
+}
+
+.petals.farewell-white i:nth-child(7n) {
+  background: #F7F1E8;
 }
 
 .petals.red-white i {
