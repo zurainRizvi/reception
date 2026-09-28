@@ -211,9 +211,12 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     : date.toLocaleString('en-GB', { month: 'long' }).toUpperCase();
   const ev = theme.events[e.id];
   const freezeLast = ev.freezeLastFrame;
-  const videoSrc = mediaUrl(ev.video);
+  const trimStart = ev.trimStart ?? 0;
+  const zoomFrom = ev.zoomFrom ?? 1;
+  const zoomTo = ev.zoomTo ?? 1;
+  const hasZoom = zoomFrom !== 1 || zoomTo !== 1;
+  const videoSrc = mediaUrl(ev.video) + (trimStart > 0 ? `#t=${trimStart}` : '');
   const posterSrc = mediaUrl(ev.poster);
-  const bgSrc = mediaUrl(ev.bgImage);
   const TEXT_AT = 2.3;
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -221,6 +224,7 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
   const failSafeRef = useRef<number | null>(null);
   const textTimerRef = useRef<number | null>(null);
   const startedRef = useRef(false);
+  const finishedRef = useRef(playedEventIntros.has(e.id));
   const textRevealedRef = useRef(playedEventIntros.has(e.id));
 
   const [showText, setShowText] = useState(() => {
@@ -233,8 +237,10 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
   });
   const [panelIn, setPanelIn] = useState(() => playedEventIntros.has(e.id));
   const [videoDone, setVideoDone] = useState(() => playedEventIntros.has(e.id));
-  // Keep video mounted for freeze-last-frame events; others can drop it after fade.
-  const [keepVideo, setKeepVideo] = useState(() => freezeLast || !playedEventIntros.has(e.id));
+  const [zoomActive, setZoomActive] = useState(false);
+  const [zoomSecs, setZoomSecs] = useState(0);
+  // Always keep the video mounted so the last frame can stay as the page background.
+  const keepVideo = true;
 
   // Slide glass up from bottom without touching opacity (keeps blur stable).
   useEffect(() => {
@@ -266,7 +272,28 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     setShowText(true);
   };
 
-  const finishVideo = () => {
+  const parkOnLastFrame = (video: HTMLVideoElement) => {
+    // Seeking on a natural `ended` can flash/stutter — only park when we must.
+    try {
+      if (Number.isFinite(video.duration) && video.duration > 0) {
+        const endAt = Math.max(trimStart, video.duration - 0.08);
+        if (Math.abs(video.currentTime - endAt) > 0.12) {
+          video.currentTime = endAt;
+        }
+      }
+    } catch {
+      // ignore seek errors
+    }
+    video.pause();
+  };
+
+  const finishVideo = (fromNaturalEnd = false) => {
+    if (finishedRef.current && fromNaturalEnd) {
+      const video = videoRef.current;
+      if (video) video.pause();
+      return;
+    }
+    finishedRef.current = true;
     if (failSafeRef.current != null) {
       window.clearTimeout(failSafeRef.current);
       failSafeRef.current = null;
@@ -277,43 +304,31 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     }
     revealText();
     setVideoDone(true);
+    setZoomActive(false);
     const video = videoRef.current;
-    if (freezeLast && video) {
-      try {
-        if (Number.isFinite(video.duration) && video.duration > 0) {
-          video.currentTime = Math.max(0, video.duration - 0.05);
-        }
-      } catch {
-        // ignore seek errors
+    if (!video) return;
+    if (freezeLast) {
+      if (fromNaturalEnd) {
+        // Hold the decoded last frame — do not re-seek (avoids Baraat glitches).
+        video.pause();
+      } else {
+        parkOnLastFrame(video);
       }
-      video.pause();
-      return;
     }
-    // Soft swap to still background for mehndi / waleema
-    window.setTimeout(() => setKeepVideo(false), 650);
   };
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    // Revisit: skip intro, park on last frame for Baraat, or drop video for others.
+    // Revisit: skip intro and park on the last frame as the background.
     if (playedEventIntros.has(e.id) && freezeLast) {
-      const park = () => {
-        try {
-          if (Number.isFinite(video.duration) && video.duration > 0) {
-            video.currentTime = Math.max(0, video.duration - 0.05);
-          }
-        } catch {
-          // ignore
-        }
-        video.pause();
-      };
+      const park = () => parkOnLastFrame(video);
       if (video.readyState >= 1) park();
       else video.addEventListener('loadedmetadata', park, { once: true });
       return;
     }
-  }, [e.id, freezeLast]);
+  }, [e.id, freezeLast, trimStart]);
 
   useEffect(() => {
     if (showText && videoDone) return;
@@ -335,11 +350,47 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     };
 
     const onTimeUpdate = () => {
-      if (video.currentTime >= TEXT_AT) revealText();
+      if (video.currentTime - trimStart >= TEXT_AT) revealText();
+    };
+
+    const onEnded = () => finishVideo(true);
+
+    const startZoom = () => {
+      if (!hasZoom) return;
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        setZoomSecs(0);
+        setZoomActive(true);
+        return;
+      }
+      const remaining =
+        Number.isFinite(video.duration) && video.duration > video.currentTime
+          ? Math.max(0.35, video.duration - video.currentTime)
+          : 4.5;
+      setZoomSecs(remaining);
+      // Double-rAF so the browser commits zoomFrom before transitioning to zoomTo.
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => setZoomActive(true));
+      });
+    };
+
+    const beginPlayback = () => {
+      textTimerRef.current = window.setTimeout(() => revealText(), Math.round(TEXT_AT * 1000));
+      const playWindowMs =
+        Number.isFinite(video.duration) && video.duration > trimStart
+          ? Math.round((video.duration - trimStart + 1.25) * 1000)
+          : 10000;
+      failSafeRef.current = window.setTimeout(() => finishVideo(false), playWindowMs);
+
+      startZoom();
+      const pending = video.play();
+      void pending?.catch(() => {
+        revealText();
+        finishVideo(false);
+      });
     };
 
     const tryPlay = () => {
-      if (startedRef.current || (playedEventIntros.has(e.id) && showText)) return;
+      if (startedRef.current || finishedRef.current || (playedEventIntros.has(e.id) && showText)) return;
       startedRef.current = true;
       video.muted = true;
       video.defaultMuted = true;
@@ -348,19 +399,38 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       video.setAttribute('playsinline', '');
       video.setAttribute('webkit-playsinline', '');
 
-      textTimerRef.current = window.setTimeout(() => revealText(), Math.round(TEXT_AT * 1000));
-      failSafeRef.current = window.setTimeout(() => finishVideo(), 10000);
+      const kickoff = () => {
+        if (trimStart <= 0) {
+          beginPlayback();
+          return;
+        }
+        // Seek first, then play — avoids the 0→trim jump stutter on Baraat.
+        let started = false;
+        const afterSeek = () => {
+          if (started) return;
+          started = true;
+          video.removeEventListener('seeked', afterSeek);
+          beginPlayback();
+        };
+        video.addEventListener('seeked', afterSeek);
+        try {
+          video.currentTime = trimStart;
+        } catch {
+          afterSeek();
+          return;
+        }
+        // If already parked near trimStart, seeked may not fire.
+        window.setTimeout(afterSeek, 280);
+      };
 
-      const pending = video.play();
-      void pending?.catch(() => {
-        revealText();
-        finishVideo();
-      });
+      if (video.readyState >= 1) kickoff();
+      else video.addEventListener('loadedmetadata', kickoff, { once: true });
     };
 
     video.addEventListener('timeupdate', onTimeUpdate);
-    video.addEventListener('ended', finishVideo);
-    video.addEventListener('error', finishVideo);
+    video.addEventListener('ended', onEnded);
+    const onError = () => finishVideo(false);
+    video.addEventListener('error', onError);
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -375,75 +445,99 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     return () => {
       observer.disconnect();
       video.removeEventListener('timeupdate', onTimeUpdate);
-      video.removeEventListener('ended', finishVideo);
-      video.removeEventListener('error', finishVideo);
+      video.removeEventListener('ended', onEnded);
+      video.removeEventListener('error', onError);
       clearTimers();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once per event card
   }, [e.id]);
 
-  const showStillBg = videoDone && !freezeLast;
+  const mediaScale = !hasZoom ? 1 : videoDone || zoomActive ? zoomTo : zoomFrom;
+  const mediaTransition =
+    hasZoom && zoomActive && zoomSecs > 0 && !videoDone
+      ? `transform ${zoomSecs}s linear`
+      : 'none';
 
   return (
     <Card
       className={`event ${e.id}`}
       style={{
         backgroundColor: e.id === 'mehndi' ? '#FDF8E7' : e.id === 'baraat' ? '#2A080C' : '#0A1F24',
-        backgroundImage: showStillBg ? `url(${bgSrc})` : undefined,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center top',
-        backgroundRepeat: 'no-repeat',
         borderTop: `1px solid ${ev.border}`,
         borderBottom: `1px solid ${ev.border}`,
         color: ev.cardInk,
         position: 'relative',
         overflow: 'hidden',
         padding: 0,
+        // Keep vertical swipe on the invitation scroller — never pinch/page-zoom.
+        touchAction: 'pan-y',
       }}
     >
       <div ref={rootRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} aria-hidden />
 
       {keepVideo && (
-        <img
-          src={posterSrc}
-          alt=""
+        <div
           aria-hidden
+          className="event-media-stage"
           style={{
             position: 'absolute',
             inset: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            objectPosition: 'center top',
             zIndex: 1,
+            overflow: 'hidden',
             pointerEvents: 'none',
+            touchAction: 'pan-y',
           }}
-        />
-      )}
-
-      {keepVideo && (
-        <video
-          ref={videoRef}
-          src={videoSrc}
-          poster={posterSrc}
-          playsInline
-          muted
-          preload="auto"
-          controls={false}
-          disablePictureInPicture
-          style={{
-            position: 'absolute',
-            inset: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            objectPosition: 'center top',
-            zIndex: 2,
-            pointerEvents: 'none',
-            opacity: showStillBg ? 0 : 1,
-            transition: 'opacity 0.65s ease',
-          }}
-        />
+        >
+          {/*
+            Zoom only the picture frame inside a clipped stage.
+            Never scale the <video> node or the browser viewport.
+          */}
+          <div
+            className="event-media-frame"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              transform: `scale(${mediaScale})`,
+              transformOrigin: 'center center',
+              transition: mediaTransition,
+              pointerEvents: 'none',
+            }}
+          >
+            <img
+              src={posterSrc}
+              alt=""
+              draggable={false}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                objectPosition: e.id === 'waleema' ? 'center center' : 'center top',
+                pointerEvents: 'none',
+              }}
+            />
+            <video
+              ref={videoRef}
+              src={videoSrc}
+              poster={posterSrc}
+              playsInline
+              muted
+              preload="auto"
+              controls={false}
+              disablePictureInPicture
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                objectPosition: e.id === 'waleema' ? 'center center' : 'center top',
+                pointerEvents: 'none',
+              }}
+            />
+          </div>
+        </div>
       )}
 
       {showText && (
@@ -486,7 +580,9 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
                     ? '24px 20px'
                     : '24px 22px',
               boxSizing: 'border-box',
-              pointerEvents: 'auto',
+              // Pass swipes through empty chrome; only the glass panel is interactive.
+              pointerEvents: 'none',
+              touchAction: 'pan-y',
             }}
           >
             {/*
@@ -520,6 +616,7 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
                 textAlign: 'center',
                 overflowWrap: 'anywhere',
                 wordBreak: 'normal',
+                pointerEvents: 'auto',
               }}
             >
           <p

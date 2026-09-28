@@ -80,7 +80,7 @@ main {
   justify-content: safe center;
 }
 
-/* Farewell note page — full viewport, centered cream card on dark silk */
+/* Farewell note page — open typography on soft silk, no glass card */
 .card.page-snap.farewell {
   height: var(--app-h, 100svh);
   min-height: var(--app-h, 100svh);
@@ -90,6 +90,18 @@ main {
   scroll-snap-align: start;
   scroll-snap-stop: always;
   transform: none !important;
+}
+
+/* Event intros: never nest a scrollport; zoom stays inside the media stage. */
+.card.page-snap.event {
+  overflow: hidden !important;
+  touch-action: pan-y;
+}
+
+.card.page-snap.event .event-media-stage {
+  overflow: hidden;
+  pointer-events: none;
+  touch-action: pan-y;
 }
 
 /* Legacy RSVP page rule kept for overlay form inside closing */
@@ -426,23 +438,28 @@ label,
   background: #fff8e8;
 }
 
-/* Farewell page — soft white petals on dark silk */
+/* Farewell page — white + soft red petals on dark silk */
 .petals.farewell-white i {
   background: #FFFFFF;
   box-shadow: 0 2px 8px rgba(255, 248, 238, 0.28);
 }
 
 .petals.farewell-white i:nth-child(3n) {
-  background: #FFF8EE;
+  background: #E8A0A8;
+  box-shadow: 0 2px 8px rgba(176, 120, 132, 0.35);
+}
+
+.petals.farewell-white i:nth-child(3n + 1) {
+  background: #FFFFFF;
 }
 
 .petals.farewell-white i:nth-child(5n) {
-  background: #FFFFFF;
-  opacity: 0.9;
+  background: #C9959E;
+  box-shadow: 0 2px 8px rgba(176, 120, 132, 0.32);
 }
 
 .petals.farewell-white i:nth-child(7n) {
-  background: #F7F1E8;
+  background: #FFF8EE;
 }
 
 .petals.red-white i {

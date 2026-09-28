@@ -111,7 +111,19 @@ export default function Invitation() {
     const releaseTightScrollers = () => {
       main.querySelectorAll('.card.page-snap').forEach((node) => {
         if (!(node instanceof HTMLElement)) return;
-        if (node.classList.contains('event-schedule') || node.classList.contains('rsvp') || node.classList.contains('farewell')) return;
+        if (
+          node.classList.contains('event-schedule') ||
+          node.classList.contains('rsvp') ||
+          node.classList.contains('farewell')
+        ) {
+          return;
+        }
+        // Event intro pages must never become nested scrollports — that traps
+        // swipe after media effects (e.g. Waleema picture zoom).
+        if (node.classList.contains('event')) {
+          node.style.overflowY = 'hidden';
+          return;
+        }
         const overflows = node.scrollHeight > node.clientHeight + 4;
         node.style.overflowY = overflows ? 'auto' : 'hidden';
       });
