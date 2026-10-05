@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { motion } from 'framer-motion';
 import { theme } from '@/config/theme';
 
 export function Ornament({ color = theme.colors.gold }: { color?: string }) {
@@ -39,20 +38,15 @@ export function Card({
   style?: React.CSSProperties;
   children: React.ReactNode;
 }) {
-  // Schedule/RSVP pages are tall snap targets — fade-in makes content look like it glitches on land.
-  const skipEnter = /\b(event-schedule|rsvp|farewell)\b/.test(className);
-
+  // Plain section — never animate the page shell. Decorative motion
+  // (petals, climbers, bows, scratch hint) lives on child elements only.
   return (
-    <motion.section
+    <section
       id={id}
-      style={{ width: '100%', margin: 0, borderRadius: 0, ...style }}
+      style={{ width: '100%', margin: 0, borderRadius: 0, transform: 'none', ...style }}
       className={`card page-snap ${className}`}
-      initial={skipEnter ? false : { opacity: 0 }}
-      whileInView={skipEnter ? undefined : { opacity: 1 }}
-      transition={{ duration: 0.7, ease: [0.25, 0.1, 0.25, 1] }}
-      viewport={{ once: true, amount: 0.12 }}
     >
       {children}
-    </motion.section>
+    </section>
   );
 }

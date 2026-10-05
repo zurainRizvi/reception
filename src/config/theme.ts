@@ -20,18 +20,22 @@ export const theme = {
   },
   events: {
     mehndi: {
-      // Schedule / botanical tokens (original light theme)
-      bg: 'linear-gradient(180deg, #FBF6EB 0%, #F3EAD8 100%)',
-      border: 'rgba(198, 161, 91, 0.35)',
-      accent: '#E0C075',
-      soft: '#F5E6B8',
-      flower: { primary: '#E0C075', secondary: '#FFF2CE', dark: '#C6A15B' },
+      // Schedule — light marigold orange matching the Mehndi video
+      bg: 'linear-gradient(180deg, #FFF7ED 0%, #FFE2C2 55%, #FFD3A3 100%)',
+      border: 'rgba(232, 140, 70, 0.42)',
+      accent: '#E8914A',
+      soft: '#FFE0BC',
+      flower: { primary: '#E8914A', secondary: '#FFE8CF', dark: '#C46A28' },
+      scheduleInk: '#3A2416',
+      scheduleInkSoft: '#6A4530',
+      scheduleAccent: '#D4782E',
       // Event-card media + readable overlay tokens
       bgImage: '/images/mehndi-bg.jpg',
       video: '/videos/mehndi.mp4',
       poster: '/videos/mehndi-poster.jpg',
       freezeLastFrame: true,
-      trimStart: 0,
+      // Skip the first 0.20s of the Mehndi intro.
+      trimStart: 0.2,
       zoomFrom: 1,
       zoomTo: 1,
       cardInk: '#14281C',
@@ -45,17 +49,20 @@ export const theme = {
       panelBorder: 'rgba(198, 161, 91, 0.28)',
     },
     baraat: {
-      bg: 'linear-gradient(180deg, #FFF0ED 0%, #F6D5D0 100%)',
-      border: 'rgba(184, 116, 116, 0.42)',
-      accent: '#B87474',
-      soft: '#F3D4CF',
-      flower: { primary: '#C48484', secondary: '#E2B6B6', dark: '#9A5555' },
-      bgImage: '/images/baraat-bg.jpg',
+      // Schedule — soft rose cream (same cream→tint recipe as Mehndi)
+      bg: 'linear-gradient(180deg, #FFF8F6 0%, #FFE4DF 55%, #F7CEC8 100%)',
+      border: 'rgba(196, 92, 92, 0.4)',
+      accent: '#C45C5C',
+      soft: '#FFE8E4',
+      flower: { primary: '#C48484', secondary: '#FFFFFF', dark: '#9A5555' },
+      scheduleInk: '#3A1E1E',
+      scheduleInkSoft: '#6A4545',
+      scheduleAccent: '#C45C5C',
       video: '/videos/baraat.mp4',
       poster: '/videos/baraat-poster.jpg',
       freezeLastFrame: true,
-      // Skip the first 0.8s so the clip opens on a clean frame.
-      trimStart: 0.8,
+      // Skip the first 0.15s of the Baraat intro.
+      trimStart: 0.15,
       zoomFrom: 1,
       zoomTo: 1,
       cardInk: '#FFFFFF',
@@ -69,30 +76,58 @@ export const theme = {
       panelBorder: 'rgba(255, 255, 255, 0.22)',
     },
     waleema: {
-      // Soft teal lifted from the deep #264B4B swatch
-      bg: 'linear-gradient(180deg, #EAF4F4 0%, #C5D9D9 100%)',
-      border: 'rgba(92, 143, 143, 0.42)',
+      // Schedule — soft sage cream (same cream→tint recipe as Mehndi)
+      bg: 'linear-gradient(180deg, #F7FBFA 0%, #E3F0EE 55%, #C8E0DD 100%)',
+      border: 'rgba(92, 143, 143, 0.4)',
       accent: '#5C8F8F',
-      soft: '#C9DDDD',
+      soft: '#E8F3F1',
       flower: { primary: '#5C8F8F', secondary: '#FFFFFF', dark: '#3A6868' },
+      scheduleInk: '#243830',
+      scheduleInkSoft: '#4A5F58',
+      scheduleAccent: '#5C8F8F',
       bgImage: '/images/waleema-bg.jpg',
       video: '/videos/waleema.mp4',
       poster: '/videos/waleema-poster.jpg',
       freezeLastFrame: true,
-      trimStart: 0,
-      // Crop the side green walls and ease in toward the couple (clip-path zoom, not CSS scale).
-      zoomFrom: 1.16,
-      zoomTo: 1.34,
-      cardInk: '#FFFFFF',
-      cardInkSoft: 'rgba(255, 255, 255, 0.92)',
-      cardAccent: '#F0D78A',
-      buttonBg: 'rgba(240, 215, 138, 0.14)',
-      buttonBorder: 'rgba(240, 215, 138, 0.55)',
-      buttonText: '#FFFFFF',
+      // Skip the first second of the Waleema intro.
+      trimStart: 1,
+      // Gentle ease toward the couple; composition is already mobile-framed.
+      zoomFrom: 1.02,
+      zoomTo: 1.1,
+      cardInk: '#FFF8F0',
+      cardInkSoft: 'rgba(255, 248, 240, 0.9)',
+      cardAccent: '#E8D5A3',
+      buttonBg: 'rgba(232, 213, 163, 0.14)',
+      buttonBorder: 'rgba(232, 213, 163, 0.55)',
+      buttonText: '#FFF8F0',
       scrim: 'transparent',
-      panelBg: 'rgba(6, 22, 28, 0.45)',
-      panelBorder: 'rgba(255, 255, 255, 0.2)',
+      panelBg: 'rgba(10, 18, 34, 0.5)',
+      panelBorder: 'rgba(232, 213, 163, 0.28)',
     },
+  },
+  // Closing farewell note — cream → soft blue wash (same recipe as schedules)
+  farewell: {
+    bg: 'linear-gradient(180deg, #F8FAFC 0%, #E6EEF6 55%, #CDD9EA 100%)',
+    border: 'rgba(122, 145, 168, 0.38)',
+    accent: '#7A91A8',
+    accentDeep: '#4A5F78',
+    flower: { primary: '#7A91A8', secondary: '#FFFFFF', dark: '#4A5F78' },
+  },
+  // RSVP overlay — cream / warm brown / gold
+  rsvp: {
+    bg: 'linear-gradient(180deg, #FFFBF5 0%, #F3E6D0 48%, #E6D0A8 100%)',
+    border: 'rgba(198, 161, 91, 0.48)',
+    ink: '#2C261F',
+    inkSoft: '#5C4F42',
+    muted: '#7A6F63',
+    field: 'rgba(255, 252, 247, 0.78)',
+    fieldBorder: 'rgba(184, 150, 90, 0.42)',
+    accent: '#C6A15B',
+    accentSoft: '#E0C075',
+  },
+  // Ayah / blessing page climbers — red & white florals
+  blessing: {
+    flower: { primary: '#C45C5C', secondary: '#FFFFFF', dark: '#8E2F2F' },
   },
   fonts: {
     display: 'Cormorant Garamond',
@@ -111,7 +146,7 @@ export const theme = {
     openingPoster: '/videos/opening-poster.jpg',
     closing: '/videos/closing.mp4',
     closingPoster: '/videos/closing-poster.jpg',
-    version: '20260928g',
+    version: '20261005b',
   },
 } as const;
 

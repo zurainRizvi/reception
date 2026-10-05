@@ -114,7 +114,8 @@ export default function Invitation() {
         if (
           node.classList.contains('event-schedule') ||
           node.classList.contains('rsvp') ||
-          node.classList.contains('farewell')
+          node.classList.contains('farewell') ||
+          (node.classList.contains('blessing') && main.getAttribute('data-locale') === 'ur')
         ) {
           return;
         }
@@ -124,8 +125,20 @@ export default function Invitation() {
           node.style.overflowY = 'hidden';
           return;
         }
+        // Urdu / dense pages: grow the snap card so <main> keeps the swipe,
+        // instead of nesting a scrollport that eats touch and blocks scrolling.
         const overflows = node.scrollHeight > node.clientHeight + 4;
-        node.style.overflowY = overflows ? 'auto' : 'hidden';
+        if (overflows) {
+          node.style.height = 'auto';
+          node.style.minHeight = 'var(--app-h, 100svh)';
+          node.style.maxHeight = 'none';
+          node.style.overflowY = 'visible';
+        } else {
+          node.style.height = '';
+          node.style.minHeight = '';
+          node.style.maxHeight = '';
+          node.style.overflowY = 'hidden';
+        }
       });
     };
     releaseTightScrollers();
@@ -139,14 +152,14 @@ export default function Invitation() {
     };
   }, [contentReady, locale]);
 
-  // Warm event intro videos one-by-one after opening, so scroll-to-event never hits a cold buffer.
+  // Warm event intro videos after opening so scroll-to-event rarely hits a cold buffer.
+  // Keep the elements alive (don't tear down src) — that preserves the HTTP cache warm.
   useEffect(() => {
     if (!contentReady) return;
-    let cancelled = false;
     const ids = ['waleema'] as const;
-
-    const preloadOne = (id: (typeof ids)[number]) =>
-      new Promise<void>((resolve) => {
+    const warmers: HTMLVideoElement[] = [];
+    const timers = ids.map((id, index) =>
+      window.setTimeout(() => {
         const video = document.createElement('video');
         video.muted = true;
         video.playsInline = true;
@@ -154,35 +167,21 @@ export default function Invitation() {
         video.setAttribute('muted', '');
         video.setAttribute('playsinline', '');
         video.src = `${theme.events[id].video}?v=${theme.videos.version}`;
-
-        let settled = false;
-        const done = () => {
-          if (settled) return;
-          settled = true;
-          video.removeAttribute('src');
-          try {
-            video.load();
-          } catch {
-            // ignore
-          }
-          resolve();
-        };
-
-        video.addEventListener('canplaythrough', done, { once: true });
-        video.addEventListener('error', done, { once: true });
-        window.setTimeout(done, 14000);
         video.load();
-      });
-
-    void (async () => {
-      for (const id of ids) {
-        if (cancelled) return;
-        await preloadOne(id);
-      }
-    })();
+        warmers.push(video);
+      }, index * 900),
+    );
 
     return () => {
-      cancelled = true;
+      timers.forEach((id) => window.clearTimeout(id));
+      warmers.forEach((video) => {
+        video.removeAttribute('src');
+        try {
+          video.load();
+        } catch {
+          // ignore
+        }
+      });
     };
   }, [contentReady]);
 
@@ -261,7 +260,12 @@ export default function Invitation() {
   };
 
   return (
-    <main dir={locale === 'ur' ? 'rtl' : 'ltr'} style={{ background: theme.colors.page, color: theme.colors.ink }}>
+    <main
+      dir="ltr"
+      lang={locale === 'ur' ? 'ur' : 'en'}
+      data-locale={locale}
+      style={{ background: theme.colors.page, color: theme.colors.ink }}
+    >
       <audio ref={audio} src={wedding.musicPath} onTimeUpdate={handleAudioTimeUpdate} preload="auto" />
 
       <OpeningStage

@@ -8,10 +8,13 @@ import { type Locale } from '@/config/translations';
 import { Ornament } from '@/components/shared/Ornament';
 import { openWhatsAppChat } from '@/utils/whatsapp';
 
-const RSVP_INK = '#F7F1E8';
-const RSVP_MUTED = 'rgba(247, 241, 232, 0.72)';
-const RSVP_LINE = 'rgba(212, 175, 87, 0.35)';
-const RSVP_FIELD = 'rgba(255, 248, 238, 0.08)';
+const RSVP_INK = theme.rsvp.ink;
+const RSVP_MUTED = theme.rsvp.muted;
+const RSVP_SOFT = theme.rsvp.inkSoft;
+const RSVP_LINE = theme.rsvp.fieldBorder;
+const RSVP_FIELD = theme.rsvp.field;
+const RSVP_ACCENT = theme.rsvp.accent;
+const RSVP_ACCENT_SOFT = theme.rsvp.accentSoft;
 
 function WhatsAppIcon() {
   return (
@@ -273,11 +276,11 @@ _Zurain & Abeeha's Waleema Invitation_`;
     fontSize: isRtl ? 13 : 11,
     letterSpacing: isRtl ? '0.04em' : '0.14em',
     textTransform: isRtl ? 'none' : 'uppercase',
-    color: theme.colors.goldSoft,
-    marginBottom: 6,
+    color: RSVP_ACCENT,
+    marginBottom: isRtl ? 4 : 6,
     fontWeight: 600,
     fontFamily: isRtl ? "'Amiri', serif" : undefined,
-    lineHeight: isRtl ? 1.7 : undefined,
+    lineHeight: isRtl ? 1.35 : undefined,
     textAlign: 'center',
   };
 
@@ -306,22 +309,22 @@ _Zurain & Abeeha's Waleema Invitation_`;
         overflowX: 'hidden',
         WebkitOverflowScrolling: 'touch',
         overscrollBehavior: 'contain',
-        background: 'linear-gradient(180deg, rgba(26,10,14,0.94) 0%, rgba(14,5,8,0.96) 100%)',
-        border: `1px solid ${RSVP_LINE}`,
+        background: theme.rsvp.bg,
+        border: `1px solid ${theme.rsvp.border}`,
         borderRadius: 22,
-        boxShadow: '0 28px 70px rgba(0,0,0,0.5)',
+        boxShadow: '0 24px 56px rgba(61, 52, 41, 0.22)',
         padding: '28px 20px max(28px, calc(env(safe-area-inset-bottom, 0px) + 18px))',
         color: RSVP_INK,
         overflowAnchor: 'none',
-        backdropFilter: 'blur(10px)',
-        WebkitBackdropFilter: 'blur(10px)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
       }}
     >
       <div style={{ width: '100%', maxWidth: 360, margin: '0 auto' }}>
         <p
           className="eyebrow"
           style={{
-            color: theme.colors.goldSoft,
+            color: RSVP_ACCENT,
             letterSpacing: isRtl ? '0.1em' : '0.28em',
             marginBottom: 8,
             fontFamily: isRtl ? "'Amiri', serif" : undefined,
@@ -342,7 +345,7 @@ _Zurain & Abeeha's Waleema Invitation_`;
               ? (
                 <>
                   شکریہ، عزیز مہمان
-                  <em style={{ color: theme.colors.goldSoft, display: 'block', fontStyle: 'normal', fontSize: '0.78em', marginTop: 6 }}>
+                  <em style={{ color: RSVP_ACCENT, display: 'block', fontStyle: 'normal', fontSize: '0.78em', marginTop: 6 }}>
                     آپ کا جواب محفوظ ہو گیا
                   </em>
                 </>
@@ -350,7 +353,7 @@ _Zurain & Abeeha's Waleema Invitation_`;
               : (
                 <>
                   Thank you, dear guest
-                  <em style={{ color: theme.colors.goldSoft, display: 'block', fontStyle: 'italic', fontSize: '0.78em', marginTop: 4 }}>
+                  <em style={{ color: RSVP_ACCENT, display: 'block', fontStyle: 'italic', fontSize: '0.78em', marginTop: 4 }}>
                     Your response is saved
                   </em>
                 </>
@@ -359,7 +362,7 @@ _Zurain & Abeeha's Waleema Invitation_`;
               ? (
                 <>
                   کیا آپ تشریف لائیں گے؟
-                  <em style={{ color: theme.colors.goldSoft, display: 'block', fontStyle: 'normal', fontSize: '0.78em', marginTop: 6 }}>
+                  <em style={{ color: RSVP_ACCENT, display: 'block', fontStyle: 'normal', fontSize: '0.78em', marginTop: 6 }}>
                     براہِ کرم اپنا جواب بھیجیں
                   </em>
                 </>
@@ -367,13 +370,13 @@ _Zurain & Abeeha's Waleema Invitation_`;
               : (
                 <>
                   Will you join us?
-                  <em style={{ color: theme.colors.goldSoft, display: 'block', fontStyle: 'italic', fontSize: '0.78em', marginTop: 4 }}>
+                  <em style={{ color: RSVP_ACCENT, display: 'block', fontStyle: 'italic', fontSize: '0.78em', marginTop: 4 }}>
                     A moment to confirm your presence
                   </em>
                 </>
               )}
         </h2>
-        <Ornament color={theme.colors.goldSoft} />
+        <Ornament color={RSVP_ACCENT} />
 
         {!submittedData ? (
           <form
@@ -422,15 +425,15 @@ _Zurain & Abeeha's Waleema Invitation_`;
                       borderRadius: 14,
                       border:
                         response === val
-                          ? `1.5px solid ${theme.colors.gold}`
+                          ? `1.5px solid ${RSVP_ACCENT}`
                           : `1px solid ${RSVP_LINE}`,
                       background:
                         response === val
                           ? val === 'yes'
-                            ? 'linear-gradient(135deg, #E0C075, #C6A15B)'
-                            : 'rgba(184,116,116,0.28)'
+                            ? `linear-gradient(135deg, ${RSVP_ACCENT_SOFT}, ${RSVP_ACCENT})`
+                            : 'rgba(184,116,116,0.22)'
                           : RSVP_FIELD,
-                      color: response === val && val === 'yes' ? '#1A0A0E' : RSVP_INK,
+                      color: response === val && val === 'yes' ? '#2C261F' : RSVP_INK,
                       fontWeight: 600,
                       fontSize: 12,
                       cursor: 'pointer',
@@ -491,7 +494,9 @@ _Zurain & Abeeha's Waleema Invitation_`;
             )}
 
             <div>
-              <label style={labelStyle}>{isRtl ? 'پیغام (اختیاری)' : 'A NOTE FOR THE COUPLE'}</label>
+              <label style={{ ...labelStyle, marginBottom: isRtl ? 2 : 4 }}>
+                {isRtl ? 'پیغام (اختیاری)' : 'A NOTE FOR THE COUPLE'}
+              </label>
               <textarea
                 name="message"
                 autoComplete="off"
@@ -501,13 +506,20 @@ _Zurain & Abeeha's Waleema Invitation_`;
                   pauseSnapForTyping();
                   setGuestMessage(e.target.value);
                 }}
-                rows={2}
+                rows={1}
                 placeholder={isRtl ? 'دعائیں یا پیغام...' : 'Optional dua or wishes...'}
-                style={{ ...fieldStyle, resize: 'none' }}
+                style={{
+                  ...fieldStyle,
+                  resize: 'none',
+                  margin: 0,
+                  lineHeight: isRtl ? 1.45 : 1.35,
+                  minHeight: 0,
+                  padding: '10px 16px',
+                }}
               />
             </div>
 
-            <p style={{ margin: '2px 0 0', color: RSVP_MUTED, fontSize: 12, lineHeight: 1.5 }}>
+            <p style={{ margin: '2px 0 0', color: RSVP_SOFT, fontSize: 12, lineHeight: 1.5 }}>
               {isRtl
                 ? 'جواب محفوظ ہو جائے گا — بھیجنے کے لیے واٹس ایپ کا بٹن دبائیں'
                 : 'Your reply is saved here. Send it on WhatsApp when you are ready.'}
@@ -525,14 +537,14 @@ _Zurain & Abeeha's Waleema Invitation_`;
                 border: 'none',
                 background:
                   !response || !guestName.trim()
-                    ? 'rgba(255,248,238,0.12)'
-                    : `linear-gradient(135deg, ${theme.colors.goldSoft}, ${theme.colors.gold})`,
-                color: !response || !guestName.trim() ? RSVP_MUTED : '#1A0A0E',
+                    ? 'rgba(198, 161, 91, 0.22)'
+                    : `linear-gradient(135deg, ${RSVP_ACCENT_SOFT}, ${RSVP_ACCENT})`,
+                color: !response || !guestName.trim() ? RSVP_MUTED : '#2C261F',
                 fontWeight: 700,
                 letterSpacing: '0.12em',
                 cursor: !response || !guestName.trim() ? 'not-allowed' : 'pointer',
                 minHeight: 48,
-                boxShadow: '0 8px 22px rgba(0,0,0,0.28)',
+                boxShadow: '0 8px 22px rgba(61, 52, 41, 0.16)',
                 fontFamily: isRtl ? "'Amiri', serif" : undefined,
               }}
             >
@@ -541,7 +553,7 @@ _Zurain & Abeeha's Waleema Invitation_`;
           </form>
         ) : (
           <div style={{ margin: '14px auto 0', textAlign: 'center' }}>
-            <p style={{ color: RSVP_MUTED, fontSize: 14, lineHeight: 1.6, marginTop: 4 }}>
+            <p style={{ color: RSVP_SOFT, fontSize: 14, lineHeight: 1.6, marginTop: 4 }}>
               {isRtl
                 ? 'جواب بھیجنے کے لیے نیچے واٹس ایپ دبائیں'
                 : 'Tap Send on WhatsApp to share your reply'}
@@ -575,7 +587,7 @@ _Zurain & Abeeha's Waleema Invitation_`;
               style={{
                 background: 'transparent',
                 border: 'none',
-                color: theme.colors.goldSoft,
+                color: RSVP_ACCENT,
                 fontSize: 11,
                 letterSpacing: '0.12em',
                 textDecoration: 'underline',
