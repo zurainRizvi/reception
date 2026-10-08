@@ -1,3 +1,4 @@
+import { INVITE_KEY } from '@/config/invite';
 import { getSupabaseClient, getSupabaseConfig } from '@/lib/supabase';
 
 export type RSVPSubmission = {
@@ -19,8 +20,8 @@ export interface RSVPService {
 }
 
 class LocalRSVPService implements RSVPService {
-  private key = 'noor-e-safar-rsvp';
-  private listKey = 'noor-e-safar-rsvp-list';
+  private key = `noor-e-safar-${INVITE_KEY}-rsvp`;
+  private listKey = `noor-e-safar-${INVITE_KEY}-rsvp-list`;
 
   async submit(data: RSVPSubmission) {
     if (typeof window === 'undefined') return;
@@ -77,6 +78,7 @@ type RsvpRow = {
   guests: number;
   message: string | null;
   submitted_at: string;
+  invite_key?: string | null;
 };
 
 function rowToSubmission(row: RsvpRow): RSVPSubmission {
@@ -92,7 +94,7 @@ function rowToSubmission(row: RsvpRow): RSVPSubmission {
 }
 
 class SupabaseRSVPService implements RSVPService {
-  private key = 'noor-e-safar-rsvp';
+  private key = `noor-e-safar-${INVITE_KEY}-rsvp`;
 
   async submit(data: RSVPSubmission) {
     const supabase = getSupabaseClient();
@@ -107,6 +109,7 @@ class SupabaseRSVPService implements RSVPService {
       guests: data.guests,
       message: data.message,
       submitted_at: data.submittedAt,
+      invite_key: INVITE_KEY,
     });
 
     if (error) {
@@ -142,7 +145,8 @@ class SupabaseRSVPService implements RSVPService {
 
     const { data, error } = await supabase
       .from('rsvps')
-      .select('id, name, response, events, guests, message, submitted_at')
+      .select('id, name, response, events, guests, message, submitted_at, invite_key')
+      .eq('invite_key', INVITE_KEY)
       .order('submitted_at', { ascending: false });
 
     if (error) {
@@ -158,8 +162,8 @@ class SupabaseRSVPService implements RSVPService {
       throw new Error('Supabase is not configured');
     }
 
-    // PostgREST requires a filter for deletes; this matches every row.
-    const { error } = await supabase.from('rsvps').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    // Only wipe this invitation's rows — never other invite links.
+    const { error } = await supabase.from('rsvps').delete().eq('invite_key', INVITE_KEY);
 
     if (error) {
       throw error;

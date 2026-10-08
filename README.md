@@ -21,9 +21,11 @@ Open `http://localhost:3000`. For production verification, run `npm run lint`, `
 
 Guest replies are saved through `RSVPService` in `src/services/rsvp.ts`. With Supabase configured, every Confirm RSVP writes to a shared `rsvps` table (WhatsApp is still optional). Without Supabase, responses stay in the browser’s local storage only.
 
+This reception site always tags rows with `invite_key = reception` (`src/config/invite.ts`). Admin list / reset only touch that key, so Noor-e-Safar complete (or biya) guests never appear here, and reception guests never appear on those other links — even when they share one Supabase project.
+
 ### 1. Create the table
 
-In Supabase → SQL Editor, run [`supabase/rsvps.sql`](supabase/rsvps.sql). That creates `public.rsvps` and anon insert/select/delete policies for the frontend admin panel.
+In Supabase → SQL Editor, run [`supabase/rsvps.sql`](supabase/rsvps.sql) if the table does not exist yet. If you already created `rsvps` without isolation, run [`supabase/rsvps_invite_key.sql`](supabase/rsvps_invite_key.sql) once instead.
 
 ### 2. Environment variables
 

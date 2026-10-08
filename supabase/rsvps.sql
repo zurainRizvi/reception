@@ -7,10 +7,13 @@ create table if not exists public.rsvps (
   events text[] not null default '{}',
   guests int not null default 0 check (guests >= 0),
   message text not null default '',
-  submitted_at timestamptz not null default now()
+  submitted_at timestamptz not null default now(),
+  -- Separates reception guests from complete / biya / other invite links.
+  invite_key text not null default 'reception'
 );
 
 create index if not exists rsvps_submitted_at_idx on public.rsvps (submitted_at desc);
+create index if not exists rsvps_invite_key_submitted_at_idx on public.rsvps (invite_key, submitted_at desc);
 
 alter table public.rsvps enable row level security;
 
