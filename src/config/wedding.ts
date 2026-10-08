@@ -54,7 +54,12 @@ export const wedding = {
     contactNumber: '923053333409',
     shareMessage: "You are warmly invited to Zurain and Abeeha's Waleema reception in Lahore — Thursday, 14 January 2027.",
   },
-  rsvp: { deadline: '2026-12-20', maxGuests: 8 },
+  rsvp: {
+    deadline: '2026-12-20',
+    maxGuests: 8,
+    /** Used by the RSVP corner admin panel (override with NEXT_PUBLIC_ADMIN_PASSWORD). */
+    adminPassword: 'zurain007!!',
+  },
   musicPath: '/audio/islamic-calm.mp3',
   social: {
     title: 'Waleema Reception — Zurain & Abeeha',

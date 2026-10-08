@@ -13,6 +13,7 @@
     "@fontsource/amiri": "latest",
     "@fontsource/cormorant-garamond": "latest",
     "@fontsource/dm-sans": "latest",
+    "@supabase/supabase-js": "^2.117.3",
     "canvas-confetti": "^1.9.4",
     "framer-motion": "latest",
     "lucide-react": "latest",

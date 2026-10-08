@@ -6,7 +6,13 @@ import { wedding } from '@/config/wedding';
 import { rsvpService } from '@/services/rsvp';
 import { type Locale } from '@/config/translations';
 import { Ornament } from '@/components/shared/Ornament';
-import { openWhatsAppChat } from '@/utils/whatsapp';
+import RsvpAdmin from '@/components/rsvp/RsvpAdmin';
+import {
+  buildWhatsAppChatUrl,
+  formatWhatsAppDisplayNumber,
+  isAndroidDevice,
+  openWhatsAppChat,
+} from '@/utils/whatsapp';
 
 const RSVP_INK = theme.rsvp.ink;
 const RSVP_MUTED = theme.rsvp.muted;
@@ -43,6 +49,8 @@ export default function RsvpCard({ locale }: { locale: Locale }) {
     message: string;
     submittedAt: string;
   } | null>(null);
+  /** After share fails on Android, next tap uses the real intent/https <a href>. */
+  const [androidUseLink, setAndroidUseLink] = useState(false);
 
   const getMain = () => document.querySelector('main');
 
@@ -206,18 +214,28 @@ export default function RsvpCard({ locale }: { locale: Locale }) {
 
   const getWhatsAppMessage = (data: NonNullable<typeof submittedData>) => {
     const isAttending = data.response === 'yes';
-    return `✨ *WALEEMA RECEPTION — RSVP* ✨
-━━━━━━━━━━━━━━━━━━━━━
-👤 *Guest:* ${data.name}
-💍 *Response:* ${isAttending ? '✅ Joyfully Attending' : '❌ Regretfully Declining'}
-${isAttending ? `👥 *Guests:* ${data.guests || '1'}\n📅 *Event:* Waleema Reception — Thursday, 14 January 2027\n` : ''}${data.message.trim() ? `💌 *Wishes:* "${data.message.trim()}"\n` : ''}⏰ *Sent:* ${new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}
-━━━━━━━━━━━━━━━━━━━━━
+    const hostLine = `To: ${formatWhatsAppDisplayNumber(wedding.whatsapp.contactNumber)}`;
+    // Compact body — Android share + deep-link URLs reject oversized Unicode payloads.
+    return `${hostLine}
+
+*WALEEMA RECEPTION — RSVP*
+Guest: ${data.name}
+Response: ${isAttending ? 'Joyfully Attending' : 'Regretfully Declining'}
+${isAttending ? `Guests: ${data.guests || '1'}\nEvent: Waleema Reception — Thursday, 14 January 2027\n` : ''}${data.message.trim() ? `Wishes: "${data.message.trim()}"\n` : ''}Sent: ${new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}
 _Zurain & Abeeha's Waleema Invitation_`;
   };
 
-  const sendToWhatsApp = (data: typeof submittedData) => {
+  const whatsAppHref = submittedData
+    ? buildWhatsAppChatUrl(wedding.whatsapp.contactNumber, getWhatsAppMessage(submittedData))
+    : '#';
+
+  const sendToWhatsApp = async (data: typeof submittedData) => {
     if (!data) return;
-    openWhatsAppChat(wedding.whatsapp.contactNumber, getWhatsAppMessage(data));
+    const result = await openWhatsAppChat(
+      wedding.whatsapp.contactNumber,
+      getWhatsAppMessage(data),
+    );
+    if (result === 'fallback') setAndroidUseLink(true);
   };
 
   async function handleSubmit(ev: React.FormEvent<HTMLFormElement>) {
@@ -558,9 +576,22 @@ _Zurain & Abeeha's Waleema Invitation_`;
                 ? 'جواب بھیجنے کے لیے نیچے واٹس ایپ دبائیں'
                 : 'Tap Send on WhatsApp to share your reply'}
             </p>
-            <button
-              type="button"
-              onClick={() => sendToWhatsApp(submittedData)}
+            <a
+              href={whatsAppHref}
+              target="_self"
+              rel="noopener"
+              data-action="share/whatsapp/share"
+              onClick={(event) => {
+                // Android 16 blocks intent:// started from script/timers.
+                // 1) First tap: system share sheet (opens WhatsApp reliably).
+                // 2) If share is unavailable: let this real <a href="intent://…"> navigate.
+                if (isAndroidDevice() && !androidUseLink && typeof navigator.share === 'function') {
+                  event.preventDefault();
+                  void sendToWhatsApp(submittedData);
+                  return;
+                }
+                // Real anchor navigation (intent on Android, https on iOS).
+              }}
               style={{
                 width: '100%',
                 padding: '14px 20px',
@@ -576,11 +607,43 @@ _Zurain & Abeeha's Waleema Invitation_`;
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 8,
+                textDecoration: 'none',
+                boxSizing: 'border-box',
+                WebkitTapHighlightColor: 'transparent',
               }}
             >
               <WhatsAppIcon />
               {isRtl ? 'واٹس ایپ پر بھیجیں' : 'Send on WhatsApp'}
-            </button>
+            </a>
+            <p
+              style={{
+                margin: '10px 0 0',
+                color: RSVP_MUTED,
+                fontSize: 11,
+                lineHeight: 1.45,
+                letterSpacing: isRtl ? 0 : '0.02em',
+              }}
+            >
+              {androidUseLink
+                ? isRtl
+                  ? 'دوبارہ واٹس ایپ پر بھیجیں دبائیں — واٹس ایپ سیدھا کھل جائے گا'
+                  : 'Tap Send on WhatsApp again — it will open the app directly'
+                : isRtl
+                  ? (
+                    <>
+                      واٹس ایپ چنیں، پھر میزبان کا چیٹ کھولیں
+                      <br />
+                      {formatWhatsAppDisplayNumber(wedding.whatsapp.contactNumber)}
+                    </>
+                  )
+                  : (
+                    <>
+                      On Android: choose WhatsApp, then the hosts&apos; chat
+                      <br />
+                      {formatWhatsAppDisplayNumber(wedding.whatsapp.contactNumber)}
+                    </>
+                  )}
+            </p>
             <button
               type="button"
               onClick={() => setSubmittedData(null)}
@@ -599,6 +662,8 @@ _Zurain & Abeeha's Waleema Invitation_`;
             </button>
           </div>
         )}
+
+        <RsvpAdmin />
       </div>
     </div>
   );
