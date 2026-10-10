@@ -2,17 +2,10 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { theme } from '@/config/theme';
-import { wedding } from '@/config/wedding';
 import { rsvpService } from '@/services/rsvp';
 import { type Locale } from '@/config/translations';
 import { Ornament } from '@/components/shared/Ornament';
 import RsvpAdmin from '@/components/rsvp/RsvpAdmin';
-import {
-  buildWhatsAppChatUrl,
-  formatWhatsAppDisplayNumber,
-  isAndroidDevice,
-  openWhatsAppChat,
-} from '@/utils/whatsapp';
 
 const RSVP_INK = theme.rsvp.ink;
 const RSVP_MUTED = theme.rsvp.muted;
@@ -21,14 +14,6 @@ const RSVP_LINE = theme.rsvp.fieldBorder;
 const RSVP_FIELD = theme.rsvp.field;
 const RSVP_ACCENT = theme.rsvp.accent;
 const RSVP_ACCENT_SOFT = theme.rsvp.accentSoft;
-
-function WhatsAppIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
-      <path d="M20.52 3.48A11.86 11.86 0 0 0 12.06 0C5.5 0 .16 5.33.16 11.89c0 2.1.55 4.14 1.59 5.95L0 24l6.33-1.66a11.9 11.9 0 0 0 5.72 1.46h.01c6.56 0 11.9-5.34 11.9-11.9 0-3.18-1.24-6.16-3.44-8.42zM12.06 21.8h-.01a9.87 9.87 0 0 1-5.03-1.38l-.36-.21-3.76.99 1-3.66-.24-.38a9.86 9.86 0 0 1-1.51-5.27c0-5.45 4.44-9.89 9.9-9.89 2.64 0 5.13 1.03 7 2.9a9.82 9.82 0 0 1 2.89 7c0 5.45-4.44 9.9-9.88 9.9zm5.42-7.4c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.96-.94 1.16-.17.2-.35.22-.64.07-.3-.15-1.25-.46-2.38-1.47-.88-.78-1.47-1.75-1.64-2.05-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.61-.92-2.21-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.88 1.22 3.08c.15.2 2.1 3.2 5.08 4.49.71.31 1.26.49 1.69.63.71.23 1.36.2 1.87.12.57-.09 1.76-.72 2.01-1.41.25-.7.25-1.29.17-1.41-.07-.13-.27-.2-.57-.35z" />
-    </svg>
-  );
-}
 
 export default function RsvpCard({ locale }: { locale: Locale }) {
   const isRtl = locale === 'ur';
@@ -49,8 +34,6 @@ export default function RsvpCard({ locale }: { locale: Locale }) {
     message: string;
     submittedAt: string;
   } | null>(null);
-  /** After share fails on Android, next tap uses the real intent/https <a href>. */
-  const [androidUseLink, setAndroidUseLink] = useState(false);
   const [cloudSaveError, setCloudSaveError] = useState(false);
 
   const getMain = () => document.querySelector('main');
@@ -213,32 +196,6 @@ export default function RsvpCard({ locale }: { locale: Locale }) {
     }
   };
 
-  const getWhatsAppMessage = (data: NonNullable<typeof submittedData>) => {
-    const isAttending = data.response === 'yes';
-    const hostLine = `To: ${formatWhatsAppDisplayNumber(wedding.whatsapp.contactNumber)}`;
-    // Compact body — Android share + deep-link URLs reject oversized Unicode payloads.
-    return `${hostLine}
-
-*WALEEMA RECEPTION — RSVP*
-Guest: ${data.name}
-Response: ${isAttending ? 'Joyfully Attending' : 'Regretfully Declining'}
-${isAttending ? `Guests: ${data.guests || '1'}\nEvent: Waleema Reception — Thursday, 14 January 2027\n` : ''}${data.message.trim() ? `Wishes: "${data.message.trim()}"\n` : ''}Sent: ${new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}
-_Zurain & Abeeha's Waleema Invitation_`;
-  };
-
-  const whatsAppHref = submittedData
-    ? buildWhatsAppChatUrl(wedding.whatsapp.contactNumber, getWhatsAppMessage(submittedData))
-    : '#';
-
-  const sendToWhatsApp = async (data: typeof submittedData) => {
-    if (!data) return;
-    const result = await openWhatsAppChat(
-      wedding.whatsapp.contactNumber,
-      getWhatsAppMessage(data),
-    );
-    if (result === 'fallback') setAndroidUseLink(true);
-  };
-
   async function handleSubmit(ev: React.FormEvent<HTMLFormElement>) {
     ev.preventDefault();
     if (!response || !guestName.trim()) return;
@@ -259,7 +216,7 @@ _Zurain & Abeeha's Waleema Invitation_`;
     try {
       await rsvpService.submit({ ...payload, guests: Number(payload.guests) });
     } catch {
-      // Still show the confirmation + WhatsApp path, but surface that cloud sync failed.
+      // Still show the confirmation, but surface that cloud sync failed.
       setCloudSaveError(true);
     }
     try {
@@ -542,8 +499,8 @@ _Zurain & Abeeha's Waleema Invitation_`;
 
             <p style={{ margin: '2px 0 0', color: RSVP_SOFT, fontSize: 12, lineHeight: 1.5 }}>
               {isRtl
-                ? 'جواب محفوظ ہو جائے گا — بھیجنے کے لیے واٹس ایپ کا بٹن دبائیں'
-                : 'Your reply is saved here. Send it on WhatsApp when you are ready.'}
+                ? 'تصدیق پر آپ کا جواب محفوظ ہو جائے گا'
+                : 'Your reply will be saved once you confirm.'}
             </p>
 
             <button
@@ -574,86 +531,18 @@ _Zurain & Abeeha's Waleema Invitation_`;
           </form>
         ) : (
           <div style={{ margin: '14px auto 0', textAlign: 'center' }}>
-            <p style={{ color: RSVP_SOFT, fontSize: 14, lineHeight: 1.6, marginTop: 4 }}>
+            <p style={{ color: RSVP_SOFT, fontSize: 15, lineHeight: 1.7, marginTop: 4 }}>
               {isRtl
-                ? 'جواب بھیجنے کے لیے نیچے واٹس ایپ دبائیں'
-                : 'Tap Send on WhatsApp to share your reply'}
+                ? 'آپ کا جواب محفوظ ہو گیا ہے۔ ہم آپ سے ملاقات کے منتظر ہیں۔'
+                : 'Your response has been saved. We look forward to the pleasure of your company.'}
             </p>
             {cloudSaveError ? (
               <p style={{ color: '#9a4a4a', fontSize: 12, lineHeight: 1.5, marginTop: 8 }}>
                 {isRtl
-                  ? 'کلاؤڈ پر محفوظ نہیں ہو سکا — براہِ کرم واٹس ایپ ضرور بھیجیں'
-                  : 'Could not sync to the host list — please still send on WhatsApp'}
+                  ? 'کلاؤڈ پر محفوظ نہیں ہو سکا — براہِ کرم کچھ دیر بعد دوبارہ کوشش کریں'
+                  : 'Could not sync to the host list — please try again shortly'}
               </p>
             ) : null}
-            <a
-              href={whatsAppHref}
-              target="_self"
-              rel="noopener"
-              data-action="share/whatsapp/share"
-              onClick={(event) => {
-                // Android 16 blocks intent:// started from script/timers.
-                // 1) First tap: system share sheet (opens WhatsApp reliably).
-                // 2) If share is unavailable: let this real <a href="intent://…"> navigate.
-                if (isAndroidDevice() && !androidUseLink && typeof navigator.share === 'function') {
-                  event.preventDefault();
-                  void sendToWhatsApp(submittedData);
-                  return;
-                }
-                // Real anchor navigation (intent on Android, https on iOS).
-              }}
-              style={{
-                width: '100%',
-                padding: '14px 20px',
-                borderRadius: 24,
-                border: 'none',
-                background: '#25D366',
-                color: '#fff',
-                fontWeight: 700,
-                marginTop: 10,
-                cursor: 'pointer',
-                minHeight: 48,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                textDecoration: 'none',
-                boxSizing: 'border-box',
-                WebkitTapHighlightColor: 'transparent',
-              }}
-            >
-              <WhatsAppIcon />
-              {isRtl ? 'واٹس ایپ پر بھیجیں' : 'Send on WhatsApp'}
-            </a>
-            <p
-              style={{
-                margin: '10px 0 0',
-                color: RSVP_MUTED,
-                fontSize: 11,
-                lineHeight: 1.45,
-                letterSpacing: isRtl ? 0 : '0.02em',
-              }}
-            >
-              {androidUseLink
-                ? isRtl
-                  ? 'دوبارہ واٹس ایپ پر بھیجیں دبائیں — واٹس ایپ سیدھا کھل جائے گا'
-                  : 'Tap Send on WhatsApp again — it will open the app directly'
-                : isRtl
-                  ? (
-                    <>
-                      واٹس ایپ چنیں، پھر میزبان کا چیٹ کھولیں
-                      <br />
-                      {formatWhatsAppDisplayNumber(wedding.whatsapp.contactNumber)}
-                    </>
-                  )
-                  : (
-                    <>
-                      On Android: choose WhatsApp, then the hosts&apos; chat
-                      <br />
-                      {formatWhatsAppDisplayNumber(wedding.whatsapp.contactNumber)}
-                    </>
-                  )}
-            </p>
             <button
               type="button"
               onClick={() => setSubmittedData(null)}
@@ -665,7 +554,7 @@ _Zurain & Abeeha's Waleema Invitation_`;
                 letterSpacing: '0.12em',
                 textDecoration: 'underline',
                 cursor: 'pointer',
-                marginTop: 12,
+                marginTop: 16,
               }}
             >
               {isRtl ? 'جواب میں تبدیلی کریں' : 'Edit response'}
