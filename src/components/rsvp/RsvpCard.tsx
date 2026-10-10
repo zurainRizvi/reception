@@ -51,6 +51,7 @@ export default function RsvpCard({ locale }: { locale: Locale }) {
   } | null>(null);
   /** After share fails on Android, next tap uses the real intent/https <a href>. */
   const [androidUseLink, setAndroidUseLink] = useState(false);
+  const [cloudSaveError, setCloudSaveError] = useState(false);
 
   const getMain = () => document.querySelector('main');
 
@@ -253,11 +254,13 @@ _Zurain & Abeeha's Waleema Invitation_`;
     savedScroll.current = null;
     pinUntil.current = 0;
     setSnapEnabled(true);
+    setCloudSaveError(false);
     setSubmittedData(payload);
     try {
       await rsvpService.submit({ ...payload, guests: Number(payload.guests) });
     } catch {
-      // A local save failure should still show the saved confirmation.
+      // Still show the confirmation + WhatsApp path, but surface that cloud sync failed.
+      setCloudSaveError(true);
     }
     try {
       const confetti = (await import('canvas-confetti')).default;
@@ -576,6 +579,13 @@ _Zurain & Abeeha's Waleema Invitation_`;
                 ? 'جواب بھیجنے کے لیے نیچے واٹس ایپ دبائیں'
                 : 'Tap Send on WhatsApp to share your reply'}
             </p>
+            {cloudSaveError ? (
+              <p style={{ color: '#9a4a4a', fontSize: 12, lineHeight: 1.5, marginTop: 8 }}>
+                {isRtl
+                  ? 'کلاؤڈ پر محفوظ نہیں ہو سکا — براہِ کرم واٹس ایپ ضرور بھیجیں'
+                  : 'Could not sync to the host list — please still send on WhatsApp'}
+              </p>
+            ) : null}
             <a
               href={whatsAppHref}
               target="_self"

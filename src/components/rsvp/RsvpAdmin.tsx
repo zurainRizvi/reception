@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
+import { INVITE_KEY } from '@/config/invite';
 import { theme } from '@/config/theme';
 import { wedding } from '@/config/wedding';
+import { getSupabaseConfig } from '@/lib/supabase';
 import { rsvpService, type RSVPSubmission } from '@/services/rsvp';
 
 const RSVP_INK = theme.rsvp.ink;
@@ -245,9 +247,16 @@ export default function RsvpAdmin() {
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-            <p style={{ margin: 0, fontSize: 11, letterSpacing: '0.16em', color: RSVP_ACCENT, fontWeight: 600 }}>
-              RSVP ADMIN
-            </p>
+            <div>
+              <p style={{ margin: 0, fontSize: 11, letterSpacing: '0.16em', color: RSVP_ACCENT, fontWeight: 600 }}>
+                RSVP ADMIN
+              </p>
+              <p style={{ margin: '2px 0 0', fontSize: 10, color: RSVP_MUTED }}>
+                {getSupabaseConfig().isConfigured
+                  ? `Cloud · ${INVITE_KEY}`
+                  : 'Local only — cloud not configured'}
+              </p>
+            </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>
               <button
                 type="button"
