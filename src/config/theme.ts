@@ -34,8 +34,8 @@ export const theme = {
       video: '/videos/mehndi.mp4',
       poster: '/videos/mehndi-poster.jpg',
       freezeLastFrame: true,
-      // Skip the first 0.20s of the Mehndi intro.
-      trimStart: 0.2,
+      // Lead-in is baked out of mehndi.mp4 — play from frame 0 for a smooth start.
+      trimStart: 0,
       zoomFrom: 1,
       zoomTo: 1,
       cardInk: '#14281C',
@@ -61,8 +61,8 @@ export const theme = {
       video: '/videos/baraat.mp4',
       poster: '/videos/baraat-poster.jpg',
       freezeLastFrame: true,
-      // Skip the first 0.15s of the Baraat intro.
-      trimStart: 0.15,
+      // Lead-in is baked out of baraat.mp4 — play from frame 0 for a smooth start.
+      trimStart: 0,
       zoomFrom: 1,
       zoomTo: 1,
       cardInk: '#FFFFFF',
@@ -89,8 +89,8 @@ export const theme = {
       video: '/videos/waleema.mp4',
       poster: '/videos/waleema-poster.jpg',
       freezeLastFrame: true,
-      // Skip the first second of the Waleema intro.
-      trimStart: 1,
+      // Lead-in is baked out of waleema.mp4 — play from frame 0 for a smooth start.
+      trimStart: 0,
       // Gentle ease toward the couple; composition is already mobile-framed.
       zoomFrom: 1.02,
       zoomTo: 1.1,
@@ -147,7 +147,7 @@ export const theme = {
     closing: '/videos/closing.mp4',
     closingPoster: '/videos/closing-poster.jpg',
     // Bump when remuxing/replacing public videos so immutable Cache-Control clients refetch.
-    version: '20261011a',
+    version: '20261011c',
   },
 } as const;
 

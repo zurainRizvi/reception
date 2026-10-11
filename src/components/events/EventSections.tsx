@@ -461,9 +461,9 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       video.setAttribute('webkit-playsinline', '');
     };
 
-    let crossedTrim = trimStart <= 0;
     let zoomStarted = false;
     let failSafeArmed = false;
+    let timersArmed = false;
     let inView = false;
     let lastProgressAt = performance.now();
     let lastProgressTime = 0;
@@ -487,7 +487,9 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       });
     };
 
-    const armPostTrimTimers = () => {
+    const armIntroTimers = () => {
+      if (timersArmed || finishedRef.current) return;
+      timersArmed = true;
       if (textTimerRef.current != null) window.clearTimeout(textTimerRef.current);
       if (scrollCueTimerRef.current != null) window.clearTimeout(scrollCueTimerRef.current);
       textTimerRef.current = window.setTimeout(() => revealText(true), Math.round(TEXT_AT * 1000));
@@ -501,22 +503,20 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       const playWindowMs =
         Number.isFinite(video.duration) && video.duration > 0
           ? Math.round((video.duration + 1.25) * 1000)
-          : Math.round((trimStart + 10) * 1000);
+          : 10000;
       failSafeRef.current = window.setTimeout(() => finishVideo(false), playWindowMs);
     };
 
-    /** Reveal under the poster once we reach trimStart — never seek (seeks stutter / break Waleema). */
-    const revealMediaIfPastTrim = () => {
-      if (finishedRef.current) return;
-      if (video.currentTime + 0.02 < trimStart) return;
-      if (!crossedTrim) {
-        crossedTrim = true;
-        if (inView) armPostTrimTimers();
-      }
-      // Only show the picture once the guest is on this page (warm preroll stays under poster).
-      if (inView) setMediaVisible(true);
+    const showMedia = () => {
+      if (finishedRef.current || !inView) return;
+      setMediaVisible(true);
+      armIntroTimers();
     };
 
+    /**
+     * Lead-ins are baked into the MP4s (trimStart=0). Play from frame 0 with no seeks —
+     * same path Mehndi uses for a smooth instant start.
+     */
     const ensurePlaying = (retriesLeft = 6) => {
       if (finishedRef.current) return;
       prepare();
@@ -524,20 +524,21 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       const pending = video.play();
       void pending
         ?.then(() => {
-          revealMediaIfPastTrim();
+          if (inView) showMedia();
         })
         .catch(() => {
           if (retriesLeft <= 0) {
             if (inView) {
               revealText(false);
               setShowScrollCue(true);
+              setMediaVisible(true);
             }
             return;
           }
           const retry = () => ensurePlaying(retriesLeft - 1);
           video.addEventListener('canplay', retry, { once: true });
           video.addEventListener('loadeddata', retry, { once: true });
-          window.setTimeout(retry, 350);
+          window.setTimeout(retry, 280);
         });
     };
 
@@ -547,31 +548,26 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
         lastProgressAt = performance.now();
       }
 
-      // Mehndi-style head start: preroll nearby until just past trim, then hold.
-      if (!inView && !finishedRef.current && video.currentTime >= trimStart + 0.06) {
+      // Warm nearby: decode a few frames then hold — do NOT seek back (seek = stutter on enter).
+      if (!inView && !finishedRef.current && video.currentTime >= 0.12) {
         video.pause();
         return;
       }
 
-      revealMediaIfPastTrim();
       if (!inView) return;
-
-      // Lock "played" only after real progress past the trim — not on a brief play() blip.
-      if (video.currentTime - trimStart >= 0.35) {
-        playedEventIntros.add(e.id);
-      }
-      if (video.currentTime - trimStart >= TEXT_AT) revealText(true);
+      showMedia();
+      if (video.currentTime >= 0.35) playedEventIntros.add(e.id);
+      if (video.currentTime >= TEXT_AT) revealText(true);
     };
 
     const onEnded = () => {
       if (!inView) {
-        // Warm preroll reached the end before the guest arrived — rewind for a clean take.
         try {
           video.currentTime = 0;
         } catch {
           // ignore
         }
-        crossedTrim = trimStart <= 0;
+        video.pause();
         return;
       }
       finishVideo(true);
@@ -580,53 +576,50 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     const enterView = () => {
       if (finishedRef.current) return;
       if (playedEventIntros.has(e.id) && videoDone) return;
+      const already = inView;
       inView = true;
       startedRef.current = true;
       armFailSafe();
-      if (trimStart <= 0 || video.currentTime + 0.02 >= trimStart) {
-        crossedTrim = true;
-        setMediaVisible(true);
-        if (textTimerRef.current == null) armPostTrimTimers();
-      } else {
-        setMediaVisible(false);
-      }
+      // If warm already decoded the first frames, show immediately — no poster wait.
+      if (video.readyState >= 2) setMediaVisible(true);
+      armIntroTimers();
       ensurePlaying(8);
+      if (!already) showMedia();
     };
 
     const leaveView = () => {
       inView = false;
       if (finishedRef.current) return;
-      // Allow a fresh kick when the guest snaps back (fixes "only works after bounce").
-      if (video.paused || video.currentTime < trimStart + 0.2) {
-        startedRef.current = false;
-      }
+      if (video.paused || video.currentTime < 0.35) startedRef.current = false;
     };
 
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('ended', onEnded);
     const onPlaying = () => {
-      revealMediaIfPastTrim();
+      if (inView) showMedia();
     };
     video.addEventListener('playing', onPlaying);
+    const onLoadedData = () => {
+      // First decoded frame ready during warm — instant paint on snap-in.
+      if (inView) showMedia();
+    };
+    video.addEventListener('loadeddata', onLoadedData);
     const onError = () => {
       startedRef.current = false;
-      if (inView) {
-        window.setTimeout(() => ensurePlaying(6), 400);
-      }
+      if (inView) window.setTimeout(() => ensurePlaying(6), 350);
     };
     video.addEventListener('error', onError);
 
-    // Warm like Mehndi gets naturally: start decoding nearby, pause just past trim.
+    // Warm far ahead (Mehndi gets this naturally by being first).
     const warmObserver = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
         if (!entry?.isIntersecting || finishedRef.current || inView) return;
         prepare();
         video.preload = 'auto';
-        if (video.currentTime >= trimStart + 0.06) return;
         ensurePlaying(4);
       },
-      { root: null, rootMargin: '160% 0px', threshold: 0 }
+      { root: null, rootMargin: '180% 0px', threshold: 0 }
     );
     warmObserver.observe(root);
 
@@ -634,41 +627,33 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       (entries) => {
         const entry = entries[0];
         if (!entry) return;
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.12) {
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.1) {
           enterView();
           return;
         }
-        if (!entry.isIntersecting || entry.intersectionRatio < 0.08) {
-          leaveView();
-        }
+        if (!entry.isIntersecting || entry.intersectionRatio < 0.06) leaveView();
       },
-      { root: null, rootMargin: '12% 0px', threshold: [0, 0.08, 0.12, 0.25, 0.4, 0.6, 0.85] }
+      { root: null, rootMargin: '18% 0px', threshold: [0, 0.06, 0.1, 0.25, 0.4, 0.6, 0.85] }
     );
     observer.observe(root);
 
-    // While on the page, never sit on a frozen poster — nudge play if decoding stalls.
     watchdogId = window.setInterval(() => {
-      if (!inView || finishedRef.current) return;
-      if (video.ended) return;
-      const stalled = performance.now() - lastProgressAt > 700;
-      if (video.paused || (stalled && video.currentTime < trimStart + 0.5)) {
-        ensurePlaying(4);
-      } else {
-        revealMediaIfPastTrim();
-      }
-    }, 450);
+      if (!inView || finishedRef.current || video.ended) return;
+      const stalled = performance.now() - lastProgressAt > 600;
+      if (video.paused || stalled) ensurePlaying(4);
+      else showMedia();
+    }, 400);
 
     const pageAligned = () => {
       const rect = root.getBoundingClientRect();
       const viewH = window.innerHeight || 1;
-      // Snap pages land with top near 0 — more reliable than a single IO pulse.
       if (rect.top < viewH * 0.35 && rect.bottom > viewH * 0.45) enterView();
     };
     pageAligned();
     window.requestAnimationFrame(pageAligned);
-    window.setTimeout(pageAligned, 80);
-    window.setTimeout(pageAligned, 240);
-    window.setTimeout(pageAligned, 600);
+    window.setTimeout(pageAligned, 60);
+    window.setTimeout(pageAligned, 200);
+    window.setTimeout(pageAligned, 500);
     const main = document.querySelector('main');
     const onScroll = () => pageAligned();
     main?.addEventListener('scroll', onScroll, { passive: true });
@@ -681,6 +666,7 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('ended', onEnded);
       video.removeEventListener('playing', onPlaying);
+      video.removeEventListener('loadeddata', onLoadedData);
       video.removeEventListener('error', onError);
       clearTimers();
     };
@@ -771,7 +757,8 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
                 objectPosition: 'center center',
                 pointerEvents: 'none',
                 opacity: mediaVisible ? 1 : 0,
-                transition: 'opacity 120ms linear',
+                // No fade — hard cut from poster to a ready frame (Mehndi-smooth).
+                transition: 'none',
               }}
             />
           </div>
