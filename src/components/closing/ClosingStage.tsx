@@ -15,7 +15,6 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
   const onPage = useRef(false);
   const failSafeRef = useRef<number | null>(null);
   const [showRsvp, setShowRsvp] = useState(false);
-  const [armed, setArmed] = useState(false);
 
   const videoSrc = `${theme.videos.closing}?v=${theme.videos.version}`;
   const posterSrc = `${theme.videos.closingPoster}?v=${theme.videos.version}`;
@@ -46,9 +45,6 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
     if (!el) return;
 
     const prepareVideo = (video: HTMLVideoElement) => {
-      if (!video.getAttribute('src')) {
-        video.src = videoSrc;
-      }
       video.muted = true;
       video.defaultMuted = true;
       video.playsInline = true;
@@ -80,34 +76,34 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
         });
     };
 
+    const startClosing = () => {
+      const video = videoRef.current;
+      if (!video || onPage.current) return;
+      onPage.current = true;
+      setShowRsvp(false);
+      prepareVideo(video);
+      try {
+        if (video.readyState >= 1) video.currentTime = 0;
+      } catch {
+        // ignore seek errors
+      }
+      armFailSafe();
+      attemptPlay(video, 6);
+    };
+
+    const main = document.querySelector('main');
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
         const video = videoRef.current;
         if (!entry || !video) return;
 
-        if (entry.isIntersecting) {
-          setArmed(true);
-          prepareVideo(video);
-        }
-
-        // 0.9 was too strict on short mobile viewports (URL bar / safe area).
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.45) {
-          if (onPage.current) return;
-          onPage.current = true;
-          setShowRsvp(false);
-          prepareVideo(video);
-          try {
-            if (video.readyState >= 1) video.currentTime = 0;
-          } catch {
-            // ignore seek errors
-          }
-          armFailSafe();
-          attemptPlay(video, 5);
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.3) {
+          startClosing();
           return;
         }
 
-        if (entry.intersectionRatio < 0.3) {
+        if (entry.intersectionRatio < 0.2) {
           onPage.current = false;
           clearFailSafe();
           video.pause();
@@ -119,10 +115,20 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
           setShowRsvp(false);
         }
       },
-      { root: document.querySelector('main'), rootMargin: '80% 0px 0px 0px', threshold: [0, 0.3, 0.45, 0.6, 0.9] }
+      { root: main, rootMargin: '40% 0px', threshold: [0, 0.2, 0.3, 0.45, 0.6, 0.9] }
     );
 
     observer.observe(el);
+
+    // LazySnap may mount this page already snapped into view.
+    const boot = () => {
+      const rect = el.getBoundingClientRect();
+      const viewH = main?.clientHeight ?? window.innerHeight;
+      if (rect.top < viewH * 0.85 && rect.bottom > viewH * 0.15) startClosing();
+    };
+    boot();
+    window.requestAnimationFrame(boot);
+
     return () => {
       observer.disconnect();
       clearFailSafe();
@@ -140,27 +146,13 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
         background: '#14060a',
       }}
     >
-      <img
-        src={posterSrc}
-        alt=""
-        aria-hidden
-        draggable={false}
-        style={{
-          position: 'absolute',
-          inset: 0,
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
-          pointerEvents: 'none',
-        }}
-      />
       <video
         ref={videoRef}
-        src={armed ? videoSrc : undefined}
+        src={videoSrc}
         poster={posterSrc}
         playsInline
         muted
-        preload={armed ? 'auto' : 'none'}
+        preload="auto"
         controls={false}
         disablePictureInPicture
         onEnded={openRsvp}

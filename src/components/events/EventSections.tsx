@@ -409,43 +409,17 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     }
   };
 
-  const ensureVideoSrc = () => {
-    const video = videoRef.current;
-    if (!video) return;
-    if (!video.getAttribute('src')) {
-      video.src = videoSrc;
-      video.preload = 'auto';
-    }
-  };
-
   useEffect(() => {
     const video = videoRef.current;
-    const root = rootRef.current;
-    if (!video || !root) return;
-
-    // Arm the file only when the guest is approaching — keeps first paint light.
-    const armObserver = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          ensureVideoSrc();
-          armObserver.disconnect();
-        }
-      },
-      { root: document.querySelector('main'), rootMargin: '110% 0px', threshold: 0.01 },
-    );
-    armObserver.observe(root);
+    if (!video) return;
 
     // Revisit: skip intro and park on the last frame as the background.
     if (playedEventIntros.has(e.id) && freezeLast) {
-      ensureVideoSrc();
       const park = () => parkOnLastFrame(video);
       if (video.readyState >= 1) park();
       else video.addEventListener('loadedmetadata', park, { once: true });
     }
-
-    return () => armObserver.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once per event card
-  }, [e.id, freezeLast, trimStart, videoSrc]);
+  }, [e.id, freezeLast, trimStart]);
 
   useEffect(() => {
     if (showText && videoDone) return;
@@ -545,7 +519,6 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     const kickTryPlay = () => {
       if (startedRef.current || finishedRef.current || (playedEventIntros.has(e.id) && showText)) return;
       startedRef.current = true;
-      ensureVideoSrc();
       video.muted = true;
       video.defaultMuted = true;
       video.playsInline = true;
@@ -584,8 +557,7 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       if (video.readyState >= 2) {
         kickoff();
       } else {
-        // Do NOT call video.load() here — it aborts an in-flight buffer from warmers
-        // and is a common reason guests need a hard refresh before autoplay works.
+        // Do NOT call video.load() here — it aborts an in-flight buffer.
         video.addEventListener('loadedmetadata', kickoff, { once: true });
         video.addEventListener('canplay', kickoff, { once: true });
         window.setTimeout(kickoff, 2200);
@@ -597,12 +569,13 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     const onError = () => finishVideo(false);
     video.addEventListener('error', onError);
 
+    const main = document.querySelector('main');
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
         if (!entry) return;
-        // Start once a good portion of the card is visible.
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.4) {
+        // Start once a visible portion of the card is on screen.
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.25) {
           kickTryPlay();
           return;
         }
@@ -611,10 +584,20 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
           startedRef.current = false;
         }
       },
-      { threshold: [0, 0.25, 0.4, 0.55, 0.75] }
+      { root: main, rootMargin: '20% 0px', threshold: [0, 0.15, 0.25, 0.4, 0.6] }
     );
 
     observer.observe(root);
+
+    // LazySnap often mounts the card already on-screen — don't wait for a second scroll.
+    const boot = () => {
+      const rect = root.getBoundingClientRect();
+      const viewH = main?.clientHeight ?? window.innerHeight;
+      if (rect.top < viewH * 0.85 && rect.bottom > viewH * 0.15) kickTryPlay();
+    };
+    boot();
+    window.requestAnimationFrame(boot);
+
     return () => {
       observer.disconnect();
       video.removeEventListener('timeupdate', onTimeUpdate);
@@ -692,10 +675,11 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
             />
             <video
               ref={videoRef}
+              src={videoSrc}
               poster={posterSrc}
               playsInline
               muted
-              preload="none"
+              preload="auto"
               controls={false}
               disablePictureInPicture
               style={{

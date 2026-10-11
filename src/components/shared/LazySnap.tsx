@@ -16,7 +16,7 @@ type Props = {
  */
 export default function LazySnap({
   children,
-  rootMargin = '140% 0px',
+  rootMargin = '220% 0px',
   minHeight = 'var(--app-h, 100svh)',
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);

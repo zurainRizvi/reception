@@ -178,6 +178,28 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
     attempt();
   };
 
+  /**
+   * Lift the seal when the curtain is painting (synced), with a short failsafe
+   * so a stalled decode after reload can never leave guests stuck on TAP.
+   */
+  const advanceToCurtainWhenReady = useCallback(() => {
+    if (phaseRef.current !== 'awaitingTap') {
+      notifyCurtainPlaying();
+      return;
+    }
+    if (videoPaintedRef.current) {
+      advanceToCurtain();
+      return;
+    }
+    const video = curtainRef.current;
+    const finish = () => advanceToCurtain();
+    if (video) {
+      video.addEventListener('playing', finish, { once: true });
+      video.addEventListener('timeupdate', finish, { once: true });
+    }
+    timersRef.current.push(window.setTimeout(finish, 650));
+  }, [advanceToCurtain, notifyCurtainPlaying]);
+
   /** Runs on tap (same turn as user gesture) so iOS allows video + music. */
   const beginFromGesture = () => {
     if (beganRef.current) return;
@@ -193,10 +215,9 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
     setShowHeroCard(false);
     clearTimers();
 
-    // UI timeline is owned here — never gate the seal lift on video paint.
-    // (Cached / stalled curtain after reload used to leave guests stuck on TAP.)
     timersRef.current.push(
-      window.setTimeout(() => advanceToCurtain(), SEAL_LIFT_MS),
+      // Failsafe only — prefer beginAfterFizz syncing to the first painted frame.
+      window.setTimeout(() => advanceToCurtain(), SEAL_LIFT_MS + 900),
       window.setTimeout(() => setShowInvite(true), INVITE_IN_MS),
       window.setTimeout(() => setShowInvite(false), INVITE_OUT_MS),
       window.setTimeout(() => {
@@ -205,14 +226,12 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
         setPhase('hero');
       }, HERO_IN_MS),
       window.setTimeout(() => setScrollCueReady(true), 5000),
-      // Absolute failsafe if anything else goes wrong.
-      window.setTimeout(() => advanceToCurtain(), SEAL_LIFT_MS + 800),
     );
   };
 
-  /** Button callback after the fizzy burst — idempotent with the OpeningStage timer. */
+  /** After the fizzy burst — lift seal as soon as the curtain is painting. */
   const beginAfterFizz = () => {
-    advanceToCurtain();
+    advanceToCurtainWhenReady();
   };
 
   const handleCurtainEnded = () => {
