@@ -40,24 +40,36 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
   const samplePending = useRef(false);
   const brushWidth = useRef(40);
   const lockedScrollTop = useRef(0);
+  const unlockTimerRef = useRef<number | null>(null);
   const isRtl = locale === 'ur';
+
+  /** Always restore scroll — never restore a nested "hidden" captured mid-scratch. */
+  const unlockMainScroll = useCallback(() => {
+    const main = document.querySelector('main');
+    if (!main) return;
+    main.classList.remove('snap-paused');
+    main.style.removeProperty('overflow-y');
+  }, []);
+
+  const lockMainScroll = useCallback(() => {
+    const main = document.querySelector('main');
+    if (!main) return;
+    lockedScrollTop.current = main.scrollTop;
+    main.classList.add('snap-paused');
+    main.style.overflowY = 'hidden';
+    main.scrollTop = lockedScrollTop.current;
+  }, []);
 
   const celebrate = useCallback(async () => {
     if (hasTriggered.current) return;
     hasTriggered.current = true;
     revealedRef.current = true;
+    isDrawing.current = false;
 
-    // Pin the scroller before layout changes — otherwise mandatory snap jumps to page 1.
     const main = document.querySelector('main');
     const card = document.getElementById('scratch-reveal');
-    const lockedTop = main?.scrollTop ?? 0;
-    let priorOverflow = '';
-    if (main) {
-      priorOverflow = main.style.overflowY;
-      main.classList.add('snap-paused');
-      main.style.overflowY = 'hidden';
-      main.scrollTop = lockedTop;
-    }
+    const lockedTop = main?.scrollTop ?? lockedScrollTop.current;
+    lockMainScroll();
 
     setShowHint(false);
     setIsRevealed(true);
@@ -74,13 +86,18 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
     });
     window.setTimeout(pin, 50);
     window.setTimeout(pin, 160);
-    window.setTimeout(() => {
+
+    if (unlockTimerRef.current != null) window.clearTimeout(unlockTimerRef.current);
+    // Always clear to a clean unlocked main — capturing priorOverflow while already
+    // locked during manual scratch left overflow:hidden forever.
+    unlockTimerRef.current = window.setTimeout(() => {
       pin();
-      if (!main) return;
-      main.style.overflowY = priorOverflow;
-      main.classList.remove('snap-paused');
+      unlockMainScroll();
       pin();
-    }, 420);
+      unlockTimerRef.current = null;
+    }, 380);
+    // Belt-and-braces in case the first unlock races a late stroke end.
+    window.setTimeout(() => unlockMainScroll(), 900);
 
     try {
       const confetti = (await import('canvas-confetti')).default;
@@ -110,7 +127,7 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
     } catch {
       // ignore
     }
-  }, []);
+  }, [lockMainScroll, unlockMainScroll]);
 
   const getCtx = useCallback(() => {
     const canvas = canvasRef.current;
@@ -260,30 +277,14 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
     [getCtx, scheduleSample],
   );
 
+  useEffect(() => () => {
+    if (unlockTimerRef.current != null) window.clearTimeout(unlockTimerRef.current);
+    unlockMainScroll();
+  }, [unlockMainScroll]);
+
   useEffect(() => {
     const surface = surfaceRef.current;
     if (!surface || isRevealed) return;
-
-    let pausedHere = false;
-    let lockedOverflow = '';
-    const pauseScroll = (paused: boolean) => {
-      const main = document.querySelector('main');
-      if (!main) return;
-      if (paused) {
-        lockedScrollTop.current = main.scrollTop;
-        pausedHere = !main.classList.contains('snap-paused');
-        main.classList.add('snap-paused');
-        // Freeze the scroller so snap-type changes can't jump/zoom the page.
-        lockedOverflow = main.style.overflowY;
-        main.style.overflowY = 'hidden';
-        main.scrollTop = lockedScrollTop.current;
-        return;
-      }
-      main.style.overflowY = lockedOverflow;
-      main.scrollTop = lockedScrollTop.current;
-      if (pausedHere) main.classList.remove('snap-paused');
-      pausedHere = false;
-    };
 
     const beginStroke = (clientX: number, clientY: number) => {
       const canvas = canvasRef.current;
@@ -293,7 +294,7 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
       rectRef.current = canvas.getBoundingClientRect();
       brushWidth.current = Math.max(40, Math.min(canvas.width, canvas.height) * 0.18);
       setShowHint(false);
-      pauseScroll(true);
+      lockMainScroll();
       scratchAt(clientX, clientY);
     };
 
@@ -303,7 +304,8 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
       lastPoint.current = null;
       rectRef.current = null;
       scheduleSample(true);
-      pauseScroll(false);
+      // If celebrate already won, it owns unlock timing — don't re-freeze via nested restore.
+      if (!revealedRef.current) unlockMainScroll();
     };
 
     const onTouchStart = (event: TouchEvent) => {
@@ -348,7 +350,7 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
     surface.addEventListener('pointercancel', onPointerUp);
 
     return () => {
-      pauseScroll(false);
+      if (!revealedRef.current) unlockMainScroll();
       surface.removeEventListener('touchstart', onTouchStart);
       surface.removeEventListener('touchmove', onTouchMove);
       surface.removeEventListener('touchend', onTouchEnd);
@@ -358,7 +360,7 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
       surface.removeEventListener('pointerup', onPointerUp);
       surface.removeEventListener('pointercancel', onPointerUp);
     };
-  }, [isRevealed, scheduleSample, scratchAt]);
+  }, [isRevealed, lockMainScroll, scheduleSample, scratchAt, unlockMainScroll]);
 
   const accentFor = (id: (typeof wedding.events)[number]['id']) => theme.events[id].accent;
 

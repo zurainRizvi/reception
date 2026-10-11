@@ -285,8 +285,19 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
     overlaysScheduledRef.current = false;
     clearTimers();
 
-    // Seal failsafe only — invite/hero timers arm from markVideoPainted.
-    timersRef.current.push(window.setTimeout(() => advanceToCurtain(), SEAL_LIFT_MS + 1200));
+    timersRef.current.push(
+      // Seal failsafe — prefer syncing to the first painted frame.
+      window.setTimeout(() => advanceToCurtain(), SEAL_LIFT_MS + 1200),
+      // If paint never arrives (stuck decode), still run Mrs. Hameed / names on wall clock.
+      window.setTimeout(() => {
+        if (!overlaysScheduledRef.current) scheduleOverlaysFromPaint();
+      }, 1400),
+      // Never leave the page scroll-locked — hard unlock + hero if still stuck.
+      window.setTimeout(() => {
+        if (phaseRef.current !== 'hero') revealHero();
+        else setOpeningScrollLocked(false);
+      }, HERO_IN_MS + 2800),
+    );
   };
 
   /** After the fizzy burst — lift seal as soon as the curtain is painting. */

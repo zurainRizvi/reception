@@ -8,21 +8,21 @@ import RsvpCard from '@/components/rsvp/RsvpCard';
 
 /** Keep the intentional ~1.2× close — do not slow this back to 1.0. */
 const CLOSING_RATE = 1.2;
-/**
- * Pop RSVP while curtains are mid-close (media seconds), not after the clip ends.
- * Closing clip is ~10s; curtains darken hard through ~0–5s — 2.8s is mid-motion.
- */
-const RSVP_AT_MEDIA_S = 4.6;
+/** Pop RSVP while curtains are mid-close (media seconds). */
+const RSVP_AT_MEDIA_S = 4.8;
 /** Guests must reach RSVP even if the closing clip stalls on a slow network. */
-const RSVP_FAILSAFE_MS = 5500;
+const RSVP_FAILSAFE_MS = 6500;
+
+/** Once the guest has seen RSVP this session, never replay the curtain. */
+let closingDoneThisSession = false;
 
 export default function ClosingStage({ locale }: { locale: Locale }) {
   const sectionRef = useRef<HTMLElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const onPage = useRef(false);
-  const rsvpOpened = useRef(false);
+  const rsvpOpened = useRef(closingDoneThisSession);
   const failSafeRef = useRef<number | null>(null);
-  const [showRsvp, setShowRsvp] = useState(false);
+  const [showRsvp, setShowRsvp] = useState(closingDoneThisSession);
 
   const videoSrc = `${theme.videos.closing}?v=${theme.videos.version}`;
   const posterSrc = `${theme.videos.closingPoster}?v=${theme.videos.version}`;
@@ -37,6 +37,7 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
   const openRsvp = () => {
     if (rsvpOpened.current) return;
     rsvpOpened.current = true;
+    closingDoneThisSession = true;
     clearFailSafe();
     setShowRsvp(true);
   };
@@ -72,8 +73,19 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
       }
     };
 
+    const parkLastFrame = (video: HTMLVideoElement) => {
+      try {
+        if (Number.isFinite(video.duration) && video.duration > 0) {
+          video.currentTime = Math.max(0, video.duration - 0.05);
+        }
+      } catch {
+        // ignore
+      }
+      video.pause();
+    };
+
     const attemptPlay = (video: HTMLVideoElement, retriesLeft: number) => {
-      if (!onPage.current) return;
+      if (!onPage.current || closingDoneThisSession) return;
       prepareVideo(video);
       const pending = video.play();
       void pending
@@ -81,11 +93,10 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
           holdRate(video);
         })
         .catch(() => {
-          if (!onPage.current) return;
+          if (!onPage.current || closingDoneThisSession) return;
           if (retriesLeft <= 0) {
-            // Keep trying softly — do not abandon the clip after one cold buffer.
             window.setTimeout(() => {
-              if (onPage.current && video.paused) attemptPlay(video, 4);
+              if (onPage.current && video.paused && !closingDoneThisSession) attemptPlay(video, 4);
             }, 800);
             return;
           }
@@ -100,6 +111,15 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
       const video = videoRef.current;
       if (!video || onPage.current) return;
       onPage.current = true;
+
+      // Revisit: keep the form up, do not replay the curtain.
+      if (closingDoneThisSession) {
+        rsvpOpened.current = true;
+        setShowRsvp(true);
+        parkLastFrame(video);
+        return;
+      }
+
       rsvpOpened.current = false;
       setShowRsvp(false);
       prepareVideo(video);
@@ -119,7 +139,6 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
     const onRateChange = () => {
       if (videoEl) holdRate(videoEl);
     };
-    // Mid-curtain: open RSVP while the close keeps playing behind the form.
     const onTimeUpdate = () => {
       if (!videoEl || !onPage.current || rsvpOpened.current) return;
       if (videoEl.currentTime >= RSVP_AT_MEDIA_S) openRsvp();
@@ -132,7 +151,7 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
       (entries) => {
         const entry = entries[0];
         const video = videoRef.current;
-        if (!entry?.isIntersecting || !video || onPage.current) return;
+        if (!entry?.isIntersecting || !video || onPage.current || closingDoneThisSession) return;
         prepareVideo(video);
       },
       { root: null, rootMargin: '140% 0px', threshold: 0 }
@@ -153,15 +172,15 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
         if (!entry.isIntersecting || entry.intersectionRatio < 0.12) {
           if (!onPage.current) return;
           onPage.current = false;
-          rsvpOpened.current = false;
           clearFailSafe();
-          video.pause();
-          try {
-            if (video.readyState >= 1) video.currentTime = 0;
-          } catch {
-            // ignore
+          // If RSVP already appeared, freeze that state — no reset / no replay.
+          if (rsvpOpened.current || closingDoneThisSession) {
+            closingDoneThisSession = true;
+            setShowRsvp(true);
+            parkLastFrame(video);
+            return;
           }
-          setShowRsvp(false);
+          video.pause();
         }
       },
       { root: null, rootMargin: '35% 0px', threshold: [0, 0.12, 0.2, 0.35, 0.5, 0.7] }
@@ -209,8 +228,11 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
         controls={false}
         disablePictureInPicture
         onError={() => {
-          // Retry once on media error, then still offer RSVP.
           const video = videoRef.current;
+          if (closingDoneThisSession) {
+            openRsvp();
+            return;
+          }
           if (video && onPage.current) {
             window.setTimeout(() => {
               void video.play()?.catch(() => openRsvp());
@@ -243,7 +265,6 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
               alignItems: 'center',
               justifyContent: 'center',
               padding: 'max(14px, env(safe-area-inset-top, 0px)) 14px max(14px, env(safe-area-inset-bottom, 0px))',
-              // Light enough that the curtains keep reading while they finish closing.
               background: 'linear-gradient(180deg, rgba(10,4,6,0.18), rgba(10,4,6,0.48))',
               overflowY: 'auto',
               WebkitOverflowScrolling: 'touch',
