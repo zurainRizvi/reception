@@ -463,6 +463,11 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
 
     let crossedTrim = trimStart <= 0;
     let zoomStarted = false;
+    let failSafeArmed = false;
+    let inView = false;
+    let lastProgressAt = performance.now();
+    let lastProgressTime = 0;
+    let watchdogId: number | null = null;
 
     const startZoom = () => {
       if (!hasZoom || zoomStarted) return;
@@ -490,19 +495,67 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       startZoom();
     };
 
+    const armFailSafe = () => {
+      if (failSafeArmed || finishedRef.current) return;
+      failSafeArmed = true;
+      const playWindowMs =
+        Number.isFinite(video.duration) && video.duration > 0
+          ? Math.round((video.duration + 1.25) * 1000)
+          : Math.round((trimStart + 10) * 1000);
+      failSafeRef.current = window.setTimeout(() => finishVideo(false), playWindowMs);
+    };
+
     /** Reveal under the poster once we reach trimStart — never seek (seeks stutter / break Waleema). */
     const revealMediaIfPastTrim = () => {
       if (finishedRef.current) return;
       if (video.currentTime + 0.02 < trimStart) return;
       if (!crossedTrim) {
         crossedTrim = true;
-        armPostTrimTimers();
+        if (inView) armPostTrimTimers();
       }
-      setMediaVisible(true);
+      // Only show the picture once the guest is on this page (warm preroll stays under poster).
+      if (inView) setMediaVisible(true);
+    };
+
+    const ensurePlaying = (retriesLeft = 6) => {
+      if (finishedRef.current) return;
+      prepare();
+      video.preload = 'auto';
+      const pending = video.play();
+      void pending
+        ?.then(() => {
+          revealMediaIfPastTrim();
+        })
+        .catch(() => {
+          if (retriesLeft <= 0) {
+            if (inView) {
+              revealText(false);
+              setShowScrollCue(true);
+            }
+            return;
+          }
+          const retry = () => ensurePlaying(retriesLeft - 1);
+          video.addEventListener('canplay', retry, { once: true });
+          video.addEventListener('loadeddata', retry, { once: true });
+          window.setTimeout(retry, 350);
+        });
     };
 
     const onTimeUpdate = () => {
+      if (Math.abs(video.currentTime - lastProgressTime) > 0.04) {
+        lastProgressTime = video.currentTime;
+        lastProgressAt = performance.now();
+      }
+
+      // Mehndi-style head start: preroll nearby until just past trim, then hold.
+      if (!inView && !finishedRef.current && video.currentTime >= trimStart + 0.06) {
+        video.pause();
+        return;
+      }
+
       revealMediaIfPastTrim();
+      if (!inView) return;
+
       // Lock "played" only after real progress past the trim — not on a brief play() blip.
       if (video.currentTime - trimStart >= 0.35) {
         playedEventIntros.add(e.id);
@@ -510,78 +563,42 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       if (video.currentTime - trimStart >= TEXT_AT) revealText(true);
     };
 
-    const onEnded = () => finishVideo(true);
-
-    const beginPlayback = () => {
-      clearTimers();
-      crossedTrim = trimStart <= 0;
-      // Failsafe covers the hidden trim lead-in + the visible clip.
-      const playWindowMs =
-        Number.isFinite(video.duration) && video.duration > 0
-          ? Math.round((video.duration + 1.25) * 1000)
-          : Math.round((trimStart + 10) * 1000);
-      failSafeRef.current = window.setTimeout(() => finishVideo(false), playWindowMs);
-      if (trimStart <= 0) armPostTrimTimers();
-
-      const attemptPlay = (retriesLeft: number) => {
-        if (finishedRef.current) return;
-        prepare();
-        video.preload = 'auto';
-        // Prefer a clean start without seeking mid-buffer. Only rewind if ended/stale.
+    const onEnded = () => {
+      if (!inView) {
+        // Warm preroll reached the end before the guest arrived — rewind for a clean take.
         try {
-          if (video.ended || (video.readyState >= 1 && video.currentTime > 0.35 && video.paused)) {
-            video.currentTime = 0;
-          }
+          video.currentTime = 0;
         } catch {
           // ignore
         }
-        const pending = video.play();
-        void pending
-          ?.then(() => {
-            revealMediaIfPastTrim();
-          })
-          .catch(() => {
-            if (retriesLeft <= 0) {
-              // Show copy for a blank wait, but NEVER lock the intro as played.
-              revealText(false);
-              setShowScrollCue(true);
-              setMediaVisible(true);
-              startedRef.current = false;
-              window.setTimeout(() => {
-                if (!finishedRef.current) kickTryPlay();
-              }, 700);
-              return;
-            }
-            const retry = () => attemptPlay(retriesLeft - 1);
-            video.addEventListener('canplay', retry, { once: true });
-            video.addEventListener('loadeddata', retry, { once: true });
-            window.setTimeout(retry, 400);
-          });
-      };
-      attemptPlay(8);
+        crossedTrim = trimStart <= 0;
+        return;
+      }
+      finishVideo(true);
     };
 
-    const kickTryPlay = () => {
-      if (startedRef.current || finishedRef.current) return;
+    const enterView = () => {
+      if (finishedRef.current) return;
       if (playedEventIntros.has(e.id) && videoDone) return;
+      inView = true;
       startedRef.current = true;
-      prepare();
-      video.preload = 'auto';
-      setMediaVisible(false);
-
-      let kickedOff = false;
-      const kickoff = () => {
-        if (kickedOff || finishedRef.current) return;
-        kickedOff = true;
-        beginPlayback();
-      };
-
-      if (video.readyState >= 2) {
-        kickoff();
+      armFailSafe();
+      if (trimStart <= 0 || video.currentTime + 0.02 >= trimStart) {
+        crossedTrim = true;
+        setMediaVisible(true);
+        if (textTimerRef.current == null) armPostTrimTimers();
       } else {
-        video.addEventListener('loadeddata', kickoff, { once: true });
-        video.addEventListener('canplay', kickoff, { once: true });
-        window.setTimeout(kickoff, 1800);
+        setMediaVisible(false);
+      }
+      ensurePlaying(8);
+    };
+
+    const leaveView = () => {
+      inView = false;
+      if (finishedRef.current) return;
+      // Allow a fresh kick when the guest snaps back (fixes "only works after bounce").
+      if (video.paused || video.currentTime < trimStart + 0.2) {
+        startedRef.current = false;
       }
     };
 
@@ -593,22 +610,23 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     video.addEventListener('playing', onPlaying);
     const onError = () => {
       startedRef.current = false;
-      setMediaVisible(true);
-      window.setTimeout(() => {
-        if (!finishedRef.current) kickTryPlay();
-      }, 500);
+      if (inView) {
+        window.setTimeout(() => ensurePlaying(6), 400);
+      }
     };
     video.addEventListener('error', onError);
 
-    // Warm the file nearby — do not seek; seeking here caused Baraat stutter after reload.
+    // Warm like Mehndi gets naturally: start decoding nearby, pause just past trim.
     const warmObserver = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (!entry?.isIntersecting || startedRef.current || finishedRef.current) return;
+        if (!entry?.isIntersecting || finishedRef.current || inView) return;
         prepare();
         video.preload = 'auto';
+        if (video.currentTime >= trimStart + 0.06) return;
+        ensurePlaying(4);
       },
-      { root: null, rootMargin: '120% 0px', threshold: 0 }
+      { root: null, rootMargin: '160% 0px', threshold: 0 }
     );
     warmObserver.observe(root);
 
@@ -616,31 +634,50 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       (entries) => {
         const entry = entries[0];
         if (!entry) return;
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.2) {
-          kickTryPlay();
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.12) {
+          enterView();
           return;
         }
-        if (!entry.isIntersecting && !finishedRef.current && video.paused) {
-          startedRef.current = false;
+        if (!entry.isIntersecting || entry.intersectionRatio < 0.08) {
+          leaveView();
         }
       },
-      { root: null, rootMargin: '20% 0px', threshold: [0, 0.1, 0.2, 0.35, 0.5, 0.7] }
+      { root: null, rootMargin: '12% 0px', threshold: [0, 0.08, 0.12, 0.25, 0.4, 0.6, 0.85] }
     );
-
     observer.observe(root);
 
-    const boot = () => {
+    // While on the page, never sit on a frozen poster — nudge play if decoding stalls.
+    watchdogId = window.setInterval(() => {
+      if (!inView || finishedRef.current) return;
+      if (video.ended) return;
+      const stalled = performance.now() - lastProgressAt > 700;
+      if (video.paused || (stalled && video.currentTime < trimStart + 0.5)) {
+        ensurePlaying(4);
+      } else {
+        revealMediaIfPastTrim();
+      }
+    }, 450);
+
+    const pageAligned = () => {
       const rect = root.getBoundingClientRect();
-      const viewH = window.innerHeight;
-      if (rect.top < viewH * 0.9 && rect.bottom > viewH * 0.1) kickTryPlay();
+      const viewH = window.innerHeight || 1;
+      // Snap pages land with top near 0 — more reliable than a single IO pulse.
+      if (rect.top < viewH * 0.35 && rect.bottom > viewH * 0.45) enterView();
     };
-    boot();
-    window.requestAnimationFrame(boot);
-    window.setTimeout(boot, 120);
+    pageAligned();
+    window.requestAnimationFrame(pageAligned);
+    window.setTimeout(pageAligned, 80);
+    window.setTimeout(pageAligned, 240);
+    window.setTimeout(pageAligned, 600);
+    const main = document.querySelector('main');
+    const onScroll = () => pageAligned();
+    main?.addEventListener('scroll', onScroll, { passive: true });
 
     return () => {
       warmObserver.disconnect();
       observer.disconnect();
+      main?.removeEventListener('scroll', onScroll);
+      if (watchdogId != null) window.clearInterval(watchdogId);
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('ended', onEnded);
       video.removeEventListener('playing', onPlaying);
