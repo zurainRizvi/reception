@@ -304,7 +304,8 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
   const zoomFrom = ev.zoomFrom ?? 1;
   const zoomTo = ev.zoomTo ?? 1;
   const hasZoom = zoomFrom !== 1 || zoomTo !== 1;
-  const videoSrc = mediaUrl(ev.video) + (trimStart > 0 ? `#t=${trimStart}` : '');
+  // No media-fragment (#t=) — mobile Safari often fails autoplay with fragments.
+  const videoSrc = mediaUrl(ev.video);
   const posterSrc = mediaUrl(ev.poster);
   const TEXT_AT = 2.3;
 
@@ -357,11 +358,13 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     };
   }, [showText]);
 
-  const revealText = () => {
-    if (textRevealedRef.current) return;
-    textRevealedRef.current = true;
-    playedEventIntros.add(e.id);
-    setShowText(true);
+  const revealText = (markPlayed = true) => {
+    if (!textRevealedRef.current) {
+      textRevealedRef.current = true;
+      setShowText(true);
+    }
+    // Only lock "played" after real playback — failed cold starts must be allowed to retry.
+    if (markPlayed) playedEventIntros.add(e.id);
   };
 
   const parkOnLastFrame = (video: HTMLVideoElement) => {
@@ -444,11 +447,25 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       }
     };
 
+    const prepare = () => {
+      video.muted = true;
+      video.defaultMuted = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      video.setAttribute('muted', '');
+      video.setAttribute('playsinline', '');
+      video.setAttribute('webkit-playsinline', '');
+    };
+
     const onTimeUpdate = () => {
-      if (video.currentTime - trimStart >= TEXT_AT) revealText();
+      if (video.currentTime - trimStart >= TEXT_AT) revealText(true);
     };
 
     const onEnded = () => finishVideo(true);
+
+    const onPlaying = () => {
+      playedEventIntros.add(e.id);
+    };
 
     const startZoom = () => {
       if (!hasZoom) return;
@@ -462,80 +479,66 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
           ? Math.max(0.35, video.duration - video.currentTime)
           : 4.5;
       setZoomSecs(remaining);
-      // Double-rAF so the browser commits zoomFrom before transitioning to zoomTo.
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => setZoomActive(true));
       });
     };
 
     const beginPlayback = () => {
-      textTimerRef.current = window.setTimeout(() => revealText(), Math.round(TEXT_AT * 1000));
-      // Show scroll-down only after ~5s of this event video.
+      clearTimers();
+      textTimerRef.current = window.setTimeout(() => revealText(true), Math.round(TEXT_AT * 1000));
       scrollCueTimerRef.current = window.setTimeout(() => setShowScrollCue(true), 5000);
       const playWindowMs =
         Number.isFinite(video.duration) && video.duration > trimStart
           ? Math.round((video.duration - trimStart + 1.25) * 1000)
           : 10000;
       failSafeRef.current = window.setTimeout(() => finishVideo(false), playWindowMs);
-
       startZoom();
 
       const attemptPlay = (retriesLeft: number) => {
-        video.muted = true;
-        video.defaultMuted = true;
-        video.playsInline = true;
-        video.setAttribute('muted', '');
-        video.setAttribute('playsinline', '');
-        video.setAttribute('webkit-playsinline', '');
+        if (finishedRef.current) return;
+        prepare();
         const pending = video.play();
-        void pending?.catch(() => {
+        void pending?.then(() => {
+          playedEventIntros.add(e.id);
+        }).catch(() => {
           if (retriesLeft <= 0) {
-            // Show copy so the page isn't stuck, but allow another try when
-            // the guest is still on (or returns to) this card.
-            revealText();
+            // Show copy for a blank wait, but NEVER lock the intro as played —
+            // that was why Baraat/Waleema stayed frozen after one cold failure.
+            revealText(false);
             setShowScrollCue(true);
             startedRef.current = false;
             window.setTimeout(() => {
-              if (finishedRef.current) return;
-              if (playedEventIntros.has(e.id)) {
-                finishVideo(false);
-                return;
-              }
-              // Re-enter the same play pipeline without requiring a hard refresh.
-              startedRef.current = false;
-              kickTryPlay();
-            }, 900);
+              if (!finishedRef.current) kickTryPlay();
+            }, 700);
             return;
           }
           const retry = () => attemptPlay(retriesLeft - 1);
           video.addEventListener('canplay', retry, { once: true });
           video.addEventListener('loadeddata', retry, { once: true });
-          window.setTimeout(retry, 450);
+          window.setTimeout(retry, 400);
         });
       };
-      attemptPlay(6);
+      attemptPlay(8);
     };
 
     const kickTryPlay = () => {
-      if (startedRef.current || finishedRef.current || (playedEventIntros.has(e.id) && showText)) return;
+      if (startedRef.current || finishedRef.current) return;
+      if (playedEventIntros.has(e.id) && videoDone) return;
       startedRef.current = true;
-      video.muted = true;
-      video.defaultMuted = true;
-      video.playsInline = true;
-      video.setAttribute('muted', '');
-      video.setAttribute('playsinline', '');
-      video.setAttribute('webkit-playsinline', '');
-      video.preload = 'auto';
+      prepare();
 
       let kickedOff = false;
       const kickoff = () => {
-        if (kickedOff) return;
+        if (kickedOff || finishedRef.current) return;
         kickedOff = true;
+
         if (trimStart <= 0) {
           beginPlayback();
           return;
         }
-        // Seek first, then play — avoids the 0→trim jump stutter.
+
+        // Seek after metadata, then play — no #t= fragment (breaks mobile autoplay).
         let started = false;
         const afterSeek = () => {
           if (started) return;
@@ -550,58 +553,61 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
           afterSeek();
           return;
         }
-        // If already parked near trimStart, seeked may not fire.
-        window.setTimeout(afterSeek, 280);
+        window.setTimeout(afterSeek, 320);
       };
 
       if (video.readyState >= 2) {
         kickoff();
       } else {
-        // Do NOT call video.load() here — it aborts an in-flight buffer.
         video.addEventListener('loadedmetadata', kickoff, { once: true });
         video.addEventListener('canplay', kickoff, { once: true });
-        window.setTimeout(kickoff, 2200);
+        window.setTimeout(kickoff, 1600);
       }
     };
 
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('ended', onEnded);
-    const onError = () => finishVideo(false);
+    video.addEventListener('playing', onPlaying);
+    const onError = () => {
+      startedRef.current = false;
+      window.setTimeout(() => {
+        if (!finishedRef.current) kickTryPlay();
+      }, 500);
+    };
     video.addEventListener('error', onError);
 
-    const main = document.querySelector('main');
+    // Viewport root — more reliable than the nested scrollport for snap pages.
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
         if (!entry) return;
-        // Start once a visible portion of the card is on screen.
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.25) {
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.2) {
           kickTryPlay();
           return;
         }
-        // If play never got going, allow a fresh attempt when the guest returns.
-        if (!entry.isIntersecting && !finishedRef.current && video.paused && video.currentTime <= trimStart + 0.15) {
+        if (!entry.isIntersecting && !finishedRef.current && video.paused) {
           startedRef.current = false;
         }
       },
-      { root: main, rootMargin: '20% 0px', threshold: [0, 0.15, 0.25, 0.4, 0.6] }
+      { root: null, rootMargin: '30% 0px', threshold: [0, 0.1, 0.2, 0.35, 0.5, 0.7] }
     );
 
     observer.observe(root);
 
-    // LazySnap often mounts the card already on-screen — don't wait for a second scroll.
     const boot = () => {
       const rect = root.getBoundingClientRect();
-      const viewH = main?.clientHeight ?? window.innerHeight;
-      if (rect.top < viewH * 0.85 && rect.bottom > viewH * 0.15) kickTryPlay();
+      const viewH = window.innerHeight;
+      if (rect.top < viewH * 0.9 && rect.bottom > viewH * 0.1) kickTryPlay();
     };
     boot();
     window.requestAnimationFrame(boot);
+    window.setTimeout(boot, 120);
 
     return () => {
       observer.disconnect();
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('ended', onEnded);
+      video.removeEventListener('playing', onPlaying);
       video.removeEventListener('error', onError);
       clearTimers();
     };

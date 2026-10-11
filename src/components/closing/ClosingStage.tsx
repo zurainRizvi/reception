@@ -7,7 +7,7 @@ import type { Locale } from '@/config/translations';
 import RsvpCard from '@/components/rsvp/RsvpCard';
 
 /** Guests must reach RSVP even if the closing clip stalls on a slow network. */
-const RSVP_FAILSAFE_MS = 8500;
+const RSVP_FAILSAFE_MS = 9000;
 
 export default function ClosingStage({ locale }: { locale: Locale }) {
   const sectionRef = useRef<HTMLElement>(null);
@@ -66,7 +66,10 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
         .catch(() => {
           if (!onPage.current) return;
           if (retriesLeft <= 0) {
-            openRsvp();
+            // Keep trying softly — do not abandon the clip after one cold buffer.
+            window.setTimeout(() => {
+              if (onPage.current && video.paused) attemptPlay(video, 4);
+            }, 800);
             return;
           }
           const retry = () => attemptPlay(video, retriesLeft - 1);
@@ -83,27 +86,27 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
       setShowRsvp(false);
       prepareVideo(video);
       try {
-        if (video.readyState >= 1) video.currentTime = 0;
+        if (video.readyState >= 1 && video.currentTime > 0.05) video.currentTime = 0;
       } catch {
         // ignore seek errors
       }
       armFailSafe();
-      attemptPlay(video, 6);
+      attemptPlay(video, 8);
     };
 
-    const main = document.querySelector('main');
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
         const video = videoRef.current;
         if (!entry || !video) return;
 
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.3) {
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.2) {
           startClosing();
           return;
         }
 
-        if (entry.intersectionRatio < 0.2) {
+        if (!entry.isIntersecting || entry.intersectionRatio < 0.12) {
+          if (!onPage.current) return;
           onPage.current = false;
           clearFailSafe();
           video.pause();
@@ -115,19 +118,19 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
           setShowRsvp(false);
         }
       },
-      { root: main, rootMargin: '40% 0px', threshold: [0, 0.2, 0.3, 0.45, 0.6, 0.9] }
+      { root: null, rootMargin: '35% 0px', threshold: [0, 0.12, 0.2, 0.35, 0.5, 0.7] }
     );
 
     observer.observe(el);
 
-    // LazySnap may mount this page already snapped into view.
     const boot = () => {
       const rect = el.getBoundingClientRect();
-      const viewH = main?.clientHeight ?? window.innerHeight;
-      if (rect.top < viewH * 0.85 && rect.bottom > viewH * 0.15) startClosing();
+      const viewH = window.innerHeight;
+      if (rect.top < viewH * 0.9 && rect.bottom > viewH * 0.1) startClosing();
     };
     boot();
     window.requestAnimationFrame(boot);
+    window.setTimeout(boot, 150);
 
     return () => {
       observer.disconnect();
@@ -156,7 +159,17 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
         controls={false}
         disablePictureInPicture
         onEnded={openRsvp}
-        onError={openRsvp}
+        onError={() => {
+          // Retry once on media error, then still offer RSVP.
+          const video = videoRef.current;
+          if (video && onPage.current) {
+            window.setTimeout(() => {
+              void video.play()?.catch(() => openRsvp());
+            }, 400);
+            return;
+          }
+          openRsvp();
+        }}
         style={{
           position: 'absolute',
           inset: 0,

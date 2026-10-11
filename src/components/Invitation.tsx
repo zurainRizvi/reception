@@ -278,9 +278,8 @@ export default function Invitation() {
 
           {wedding.events.map((e, i) => (
             <React.Fragment key={e.id}>
-              <LazySnap>
-                <EventCard e={e} i={i} locale={locale} />
-              </LazySnap>
+              {/* Event intros mount with story so videos can buffer before the guest arrives. */}
+              <EventCard e={e} i={i} locale={locale} />
               <LazySnap>
                 <EventSchedule eventId={e.id} locale={locale} />
               </LazySnap>
@@ -289,9 +288,8 @@ export default function Invitation() {
           <LazySnap>
             <FarewellCard locale={locale} />
           </LazySnap>
-          <LazySnap>
-            <ClosingStage locale={locale} />
-          </LazySnap>
+          {/* Closing video must be mounted early too — LazySnap left it cold and unplayable. */}
+          <ClosingStage locale={locale} />
         </div>
       )}
     </main>
