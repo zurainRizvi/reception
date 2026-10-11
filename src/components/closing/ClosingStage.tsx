@@ -44,6 +44,9 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
     const el = sectionRef.current;
     if (!el) return;
 
+    // Keep the intentional ~1.2× close — do not slow this back to 1.0.
+    const CLOSING_RATE = 1.2;
+
     const prepareVideo = (video: HTMLVideoElement) => {
       video.muted = true;
       video.defaultMuted = true;
@@ -52,7 +55,14 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
       video.setAttribute('playsinline', '');
       video.setAttribute('webkit-playsinline', '');
       video.preload = 'auto';
-      video.playbackRate = 1.2;
+      video.playbackRate = CLOSING_RATE;
+      video.defaultPlaybackRate = CLOSING_RATE;
+    };
+
+    const holdRate = (video: HTMLVideoElement) => {
+      if (Math.abs(video.playbackRate - CLOSING_RATE) > 0.01) {
+        video.playbackRate = CLOSING_RATE;
+      }
     };
 
     const attemptPlay = (video: HTMLVideoElement, retriesLeft: number) => {
@@ -61,7 +71,7 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
       const pending = video.play();
       void pending
         ?.then(() => {
-          video.playbackRate = 1.2;
+          holdRate(video);
         })
         .catch(() => {
           if (!onPage.current) return;
@@ -93,6 +103,34 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
       armFailSafe();
       attemptPlay(video, 8);
     };
+
+    const videoEl = videoRef.current;
+    const onPlaying = () => {
+      if (videoEl) holdRate(videoEl);
+    };
+    const onRateChange = () => {
+      if (videoEl) holdRate(videoEl);
+    };
+    videoEl?.addEventListener('playing', onPlaying);
+    videoEl?.addEventListener('ratechange', onRateChange);
+
+    const warmObserver = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        const video = videoRef.current;
+        if (!entry?.isIntersecting || !video || onPage.current) return;
+        prepareVideo(video);
+        if (video.readyState === 0) {
+          try {
+            video.load();
+          } catch {
+            // ignore
+          }
+        }
+      },
+      { root: null, rootMargin: '140% 0px', threshold: 0 }
+    );
+    warmObserver.observe(el);
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -133,7 +171,10 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
     window.setTimeout(boot, 150);
 
     return () => {
+      warmObserver.disconnect();
       observer.disconnect();
+      videoEl?.removeEventListener('playing', onPlaying);
+      videoEl?.removeEventListener('ratechange', onRateChange);
       clearFailSafe();
     };
   }, [videoSrc]);

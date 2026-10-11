@@ -146,7 +146,8 @@ export const theme = {
     openingPoster: '/videos/opening-poster.jpg',
     closing: '/videos/closing.mp4',
     closingPoster: '/videos/closing-poster.jpg',
-    version: '20261005b',
+    // Bump when remuxing/replacing public videos so immutable Cache-Control clients refetch.
+    version: '20261011a',
   },
 } as const;
 

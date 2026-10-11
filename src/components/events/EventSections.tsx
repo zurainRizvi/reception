@@ -457,15 +457,36 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       video.setAttribute('webkit-playsinline', '');
     };
 
+    let trimApplied = trimStart <= 0;
+
+    const applyTrimStart = () => {
+      if (trimStart <= 0 || trimApplied || finishedRef.current) return;
+      // Never seek before the browser can decode — that froze Baraat/Waleema.
+      if (video.readyState < 1) return;
+      if (video.currentTime >= trimStart - 0.04) {
+        trimApplied = true;
+        return;
+      }
+      try {
+        video.currentTime = trimStart;
+        trimApplied = true;
+      } catch {
+        // Keep playing from 0; retry on the next timeupdate.
+      }
+    };
+
     const onTimeUpdate = () => {
+      if (!trimApplied && trimStart > 0 && !video.paused) {
+        applyTrimStart();
+      }
+      // Lock "played" only after real progress past the trim — not on a brief play() blip.
+      if (video.currentTime - trimStart >= 0.35) {
+        playedEventIntros.add(e.id);
+      }
       if (video.currentTime - trimStart >= TEXT_AT) revealText(true);
     };
 
     const onEnded = () => finishVideo(true);
-
-    const onPlaying = () => {
-      playedEventIntros.add(e.id);
-    };
 
     const startZoom = () => {
       if (!hasZoom) return;
@@ -498,26 +519,33 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       const attemptPlay = (retriesLeft: number) => {
         if (finishedRef.current) return;
         prepare();
+        video.preload = 'auto';
         const pending = video.play();
-        void pending?.then(() => {
-          playedEventIntros.add(e.id);
-        }).catch(() => {
-          if (retriesLeft <= 0) {
-            // Show copy for a blank wait, but NEVER lock the intro as played —
-            // that was why Baraat/Waleema stayed frozen after one cold failure.
-            revealText(false);
-            setShowScrollCue(true);
-            startedRef.current = false;
-            window.setTimeout(() => {
-              if (!finishedRef.current) kickTryPlay();
-            }, 700);
-            return;
-          }
-          const retry = () => attemptPlay(retriesLeft - 1);
-          video.addEventListener('canplay', retry, { once: true });
-          video.addEventListener('loadeddata', retry, { once: true });
-          window.setTimeout(retry, 400);
-        });
+        void pending
+          ?.then(() => {
+            // Play first, then snap to trimStart (preserves theme trim without blocking autoplay).
+            applyTrimStart();
+            if (video.paused && !finishedRef.current) {
+              void video.play()?.catch(() => {});
+            }
+          })
+          .catch(() => {
+            if (retriesLeft <= 0) {
+              // Show copy for a blank wait, but NEVER lock the intro as played —
+              // that was why Baraat/Waleema stayed frozen after one cold failure.
+              revealText(false);
+              setShowScrollCue(true);
+              startedRef.current = false;
+              window.setTimeout(() => {
+                if (!finishedRef.current) kickTryPlay();
+              }, 700);
+              return;
+            }
+            const retry = () => attemptPlay(retriesLeft - 1);
+            video.addEventListener('canplay', retry, { once: true });
+            video.addEventListener('loadeddata', retry, { once: true });
+            window.setTimeout(retry, 400);
+          });
       };
       attemptPlay(8);
     };
@@ -527,56 +555,66 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       if (playedEventIntros.has(e.id) && videoDone) return;
       startedRef.current = true;
       prepare();
+      video.preload = 'auto';
 
       let kickedOff = false;
       const kickoff = () => {
         if (kickedOff || finishedRef.current) return;
         kickedOff = true;
-
-        if (trimStart <= 0) {
-          beginPlayback();
-          return;
-        }
-
-        // Seek after metadata, then play — no #t= fragment (breaks mobile autoplay).
-        let started = false;
-        const afterSeek = () => {
-          if (started) return;
-          started = true;
-          video.removeEventListener('seeked', afterSeek);
-          beginPlayback();
-        };
-        video.addEventListener('seeked', afterSeek);
-        try {
-          video.currentTime = trimStart;
-        } catch {
-          afterSeek();
-          return;
-        }
-        window.setTimeout(afterSeek, 320);
+        // Always start playback first — seeking before play() stalls cold MP4s.
+        beginPlayback();
       };
 
-      if (video.readyState >= 2) {
+      if (video.readyState >= 1) {
         kickoff();
       } else {
         video.addEventListener('loadedmetadata', kickoff, { once: true });
         video.addEventListener('canplay', kickoff, { once: true });
+        try {
+          video.load();
+        } catch {
+          // ignore
+        }
         window.setTimeout(kickoff, 1600);
       }
     };
 
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('ended', onEnded);
-    video.addEventListener('playing', onPlaying);
+    const onSeeked = () => {
+      if (finishedRef.current) return;
+      if (video.paused) void video.play()?.catch(() => {});
+    };
+    video.addEventListener('seeked', onSeeked);
     const onError = () => {
       startedRef.current = false;
+      trimApplied = trimStart <= 0;
       window.setTimeout(() => {
         if (!finishedRef.current) kickTryPlay();
       }, 500);
     };
     video.addEventListener('error', onError);
 
-    // Viewport root — more reliable than the nested scrollport for snap pages.
+    // Warm buffer when nearby; start playback once mostly on screen.
+    const warmObserver = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting || startedRef.current || finishedRef.current) return;
+        prepare();
+        video.preload = 'auto';
+        // Don't call load() once bytes are flowing — it aborts the buffer.
+        if (video.readyState === 0) {
+          try {
+            video.load();
+          } catch {
+            // ignore
+          }
+        }
+      },
+      { root: null, rootMargin: '120% 0px', threshold: 0 }
+    );
+    warmObserver.observe(root);
+
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
@@ -589,7 +627,7 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
           startedRef.current = false;
         }
       },
-      { root: null, rootMargin: '30% 0px', threshold: [0, 0.1, 0.2, 0.35, 0.5, 0.7] }
+      { root: null, rootMargin: '20% 0px', threshold: [0, 0.1, 0.2, 0.35, 0.5, 0.7] }
     );
 
     observer.observe(root);
@@ -604,10 +642,11 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     window.setTimeout(boot, 120);
 
     return () => {
+      warmObserver.disconnect();
       observer.disconnect();
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('ended', onEnded);
-      video.removeEventListener('playing', onPlaying);
+      video.removeEventListener('seeked', onSeeked);
       video.removeEventListener('error', onError);
       clearTimers();
     };
@@ -685,7 +724,8 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
               poster={posterSrc}
               playsInline
               muted
-              preload="auto"
+              // metadata until the warm observer promotes to auto — keeps Baraat/Waleema from starving.
+              preload="metadata"
               controls={false}
               disablePictureInPicture
               style={{
