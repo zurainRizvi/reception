@@ -46,8 +46,42 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
     if (hasTriggered.current) return;
     hasTriggered.current = true;
     revealedRef.current = true;
+
+    // Pin the scroller before layout changes — otherwise mandatory snap jumps to page 1.
+    const main = document.querySelector('main');
+    const card = document.getElementById('scratch-reveal');
+    const lockedTop = main?.scrollTop ?? 0;
+    let priorOverflow = '';
+    if (main) {
+      priorOverflow = main.style.overflowY;
+      main.classList.add('snap-paused');
+      main.style.overflowY = 'hidden';
+      main.scrollTop = lockedTop;
+    }
+
     setShowHint(false);
     setIsRevealed(true);
+
+    const pin = () => {
+      if (!main) return;
+      main.scrollTop = lockedTop;
+      card?.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'auto' });
+    };
+    pin();
+    requestAnimationFrame(() => {
+      pin();
+      requestAnimationFrame(pin);
+    });
+    window.setTimeout(pin, 50);
+    window.setTimeout(pin, 160);
+    window.setTimeout(() => {
+      pin();
+      if (!main) return;
+      main.style.overflowY = priorOverflow;
+      main.classList.remove('snap-paused');
+      pin();
+    }, 420);
+
     try {
       const confetti = (await import('canvas-confetti')).default;
       const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
@@ -333,6 +367,7 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
 
   return (
     <Card
+      id="scratch-reveal"
       className="reveal-date-card"
       style={{
         backgroundColor: backdrop,
@@ -573,10 +608,14 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
             </div>
           </div>
 
-          {!isRevealed && (
+          {!isRevealed ? (
             <button
               type="button"
-              onClick={() => celebrate()}
+              onClick={(event) => {
+                event.preventDefault();
+                event.currentTarget.blur();
+                void celebrate();
+              }}
               style={{
                 marginTop: 2,
                 marginBottom: 4,
@@ -599,7 +638,11 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
             >
               {isRtl ? '✨ فوری طور پر ظاہر کریں' : '✨ Tap to reveal instantly'}
             </button>
+          ) : (
+            // Keep the same vertical space so snap doesn't jump to page 1 after reveal.
+            <div aria-hidden style={{ height: 50, marginTop: 2, marginBottom: 4, flexShrink: 0 }} />
           )}
+
           <ScrollDownHint
             locale={locale}
             placement="afterContent"

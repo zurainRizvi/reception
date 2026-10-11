@@ -14,6 +14,8 @@ import WeddingFizzyButton from '@/components/intro/WeddingFizzyButton';
 type Props = {
   locale: Locale;
   onBegin: () => void;
+  /** Fired once the curtain is actually painting — safe to mount light below-fold pages. */
+  onCurtainPlaying?: () => void;
   /** Fired when the hero card is shown so content below can mount before SWIPE DOWN. */
   onHeroReady?: () => void;
 };
@@ -25,11 +27,13 @@ const INVITE_IN_MS = 3000; // Mrs. Hameed on the 3rd second
 const INVITE_OUT_MS = 7000; // holds through the 7th second (+1s)
 const HERO_IN_MS = 8000; // Zurain & Abeeha on the 8th second
 
-export default function OpeningStage({ locale, onBegin, onHeroReady }: Props) {
+export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHeroReady }: Props) {
   const curtainRef = useRef<HTMLVideoElement>(null);
   const beganRef = useRef(false);
   const heroReadyRef = useRef(false);
+  const curtainPlayingNotified = useRef(false);
   const timersRef = useRef<number[]>([]);
+  const playRetryTimerRef = useRef<number | null>(null);
   const [phase, setPhase] = useState<Phase>('awaitingTap');
   const [showInvite, setShowInvite] = useState(false);
   const [showHeroCard, setShowHeroCard] = useState(false);
@@ -54,12 +58,19 @@ export default function OpeningStage({ locale, onBegin, onHeroReady }: Props) {
     const video = curtainRef.current;
     if (!video || video.paused || video.readyState < 2) return;
     videoPaintedRef.current = true;
+    if (playRetryTimerRef.current != null) {
+      window.clearTimeout(playRetryTimerRef.current);
+      playRetryTimerRef.current = null;
+    }
+    if (!curtainPlayingNotified.current) {
+      curtainPlayingNotified.current = true;
+      onCurtainPlaying?.();
+    }
     // Two rAFs so the browser commits the first decoded frame before we fade the poster.
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => setVideoPainted(true));
     });
-  }, []);
-
+  }, [onCurtainPlaying]);
   const revealHero = () => {
     setShowInvite(false);
     setShowHeroCard(true);
@@ -69,7 +80,13 @@ export default function OpeningStage({ locale, onBegin, onHeroReady }: Props) {
     }
   };
 
-  useEffect(() => () => clearTimers(), []);
+  useEffect(
+    () => () => {
+      clearTimers();
+      if (playRetryTimerRef.current != null) window.clearTimeout(playRetryTimerRef.current);
+    },
+    [],
+  );
 
   const attachCurtain = useCallback((node: HTMLVideoElement | null) => {
     curtainRef.current = node;
@@ -80,6 +97,7 @@ export default function OpeningStage({ locale, onBegin, onHeroReady }: Props) {
     node.defaultMuted = true;
     node.volume = 0;
     node.playsInline = true;
+    node.preload = 'auto';
     node.setAttribute('muted', '');
     node.setAttribute('playsinline', '');
     node.setAttribute('webkit-playsinline', '');
@@ -92,25 +110,30 @@ export default function OpeningStage({ locale, onBegin, onHeroReady }: Props) {
     video.defaultMuted = true;
     video.volume = 0;
     video.playsInline = true;
+    video.preload = 'auto';
     video.setAttribute('muted', '');
     video.setAttribute('playsinline', '');
     video.setAttribute('webkit-playsinline', '');
-    // Must run in the tap turn. Awaiting metadata, seeking, or pausing first
-    // drops iOS user activation, so play() is rejected and the curtain stays shut.
-    const attempt = (retriesLeft: number) => {
+    // Must run in the tap turn. Keep retrying until a frame paints — early taps
+    // often hit NotAllowed/Abort while the poster-only first paint is still buffering.
+    let tries = 0;
+    const attempt = () => {
+      if (videoPaintedRef.current || !beganRef.current) return;
       video.muted = true;
       video.defaultMuted = true;
       video.volume = 0;
       const pending = video.play();
-      void pending?.catch(() => {
-        if (retriesLeft <= 0) return;
-        const retry = () => attempt(retriesLeft - 1);
+      void pending?.then(() => markVideoPainted()).catch(() => {
+        tries += 1;
+        if (tries > 30) return;
+        const retry = () => attempt();
         video.addEventListener('canplay', retry, { once: true });
         video.addEventListener('loadeddata', retry, { once: true });
-        window.setTimeout(retry, 280);
+        if (playRetryTimerRef.current != null) window.clearTimeout(playRetryTimerRef.current);
+        playRetryTimerRef.current = window.setTimeout(retry, 320);
       });
     };
-    attempt(5);
+    attempt();
   };
 
   /** Runs on tap (same turn as user gesture) so iOS allows video + music. */
@@ -140,7 +163,14 @@ export default function OpeningStage({ locale, onBegin, onHeroReady }: Props) {
 
   /** After the fizzy burst — clear the tap overlay once the curtain is painting. */
   const beginAfterFizz = () => {
-    const finish = () => setPhase('curtain');
+    const finish = () => {
+      setPhase('curtain');
+      // Even if decode is slow, allow light pages to prepare after the seal lifts.
+      if (!curtainPlayingNotified.current) {
+        curtainPlayingNotified.current = true;
+        onCurtainPlaying?.();
+      }
+    };
     if (videoPaintedRef.current) {
       finish();
       return;

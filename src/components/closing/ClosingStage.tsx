@@ -15,6 +15,7 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
   const onPage = useRef(false);
   const failSafeRef = useRef<number | null>(null);
   const [showRsvp, setShowRsvp] = useState(false);
+  const [armed, setArmed] = useState(false);
 
   const videoSrc = `${theme.videos.closing}?v=${theme.videos.version}`;
   const posterSrc = `${theme.videos.closingPoster}?v=${theme.videos.version}`;
@@ -45,6 +46,9 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
     if (!el) return;
 
     const prepareVideo = (video: HTMLVideoElement) => {
+      if (!video.getAttribute('src')) {
+        video.src = videoSrc;
+      }
       video.muted = true;
       video.defaultMuted = true;
       video.playsInline = true;
@@ -82,6 +86,11 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
         const video = videoRef.current;
         if (!entry || !video) return;
 
+        if (entry.isIntersecting) {
+          setArmed(true);
+          prepareVideo(video);
+        }
+
         // 0.9 was too strict on short mobile viewports (URL bar / safe area).
         if (entry.isIntersecting && entry.intersectionRatio >= 0.45) {
           if (onPage.current) return;
@@ -110,7 +119,7 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
           setShowRsvp(false);
         }
       },
-      { threshold: [0, 0.3, 0.45, 0.6, 0.9] }
+      { root: document.querySelector('main'), rootMargin: '80% 0px 0px 0px', threshold: [0, 0.3, 0.45, 0.6, 0.9] }
     );
 
     observer.observe(el);
@@ -118,7 +127,7 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
       observer.disconnect();
       clearFailSafe();
     };
-  }, []);
+  }, [videoSrc]);
 
   return (
     <section
@@ -131,13 +140,27 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
         background: '#14060a',
       }}
     >
+      <img
+        src={posterSrc}
+        alt=""
+        aria-hidden
+        draggable={false}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          pointerEvents: 'none',
+        }}
+      />
       <video
         ref={videoRef}
-        src={videoSrc}
+        src={armed ? videoSrc : undefined}
         poster={posterSrc}
         playsInline
         muted
-        preload="metadata"
+        preload={armed ? 'auto' : 'none'}
         controls={false}
         disablePictureInPicture
         onEnded={openRsvp}

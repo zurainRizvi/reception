@@ -9,6 +9,7 @@ import '@fontsource/amiri/700.css';
 import './globals.css';
 import './foliage.css';
 import { wedding } from '@/config/wedding';
+import { theme } from '@/config/theme';
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'),
@@ -32,9 +33,17 @@ export const viewport: Viewport = {
   themeColor: wedding.social.themeColor,
 };
 
+const openingPoster = `${theme.videos.openingPoster}?v=${theme.videos.version}`;
+const openingVideo = `${theme.videos.opening}?v=${theme.videos.version}`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        {/* First paint: poster + curtain only. Everything else lazy-loads later. */}
+        <link rel="preload" as="image" href={openingPoster} />
+        <link rel="preload" as="video" href={openingVideo} type="video/mp4" />
+      </head>
       <body>{children}</body>
     </html>
   );

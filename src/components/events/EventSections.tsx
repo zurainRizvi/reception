@@ -409,18 +409,43 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     }
   };
 
-  useEffect(() => {
+  const ensureVideoSrc = () => {
     const video = videoRef.current;
     if (!video) return;
+    if (!video.getAttribute('src')) {
+      video.src = videoSrc;
+      video.preload = 'auto';
+    }
+  };
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const root = rootRef.current;
+    if (!video || !root) return;
+
+    // Arm the file only when the guest is approaching — keeps first paint light.
+    const armObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          ensureVideoSrc();
+          armObserver.disconnect();
+        }
+      },
+      { root: document.querySelector('main'), rootMargin: '110% 0px', threshold: 0.01 },
+    );
+    armObserver.observe(root);
 
     // Revisit: skip intro and park on the last frame as the background.
     if (playedEventIntros.has(e.id) && freezeLast) {
+      ensureVideoSrc();
       const park = () => parkOnLastFrame(video);
       if (video.readyState >= 1) park();
       else video.addEventListener('loadedmetadata', park, { once: true });
-      return;
     }
-  }, [e.id, freezeLast, trimStart]);
+
+    return () => armObserver.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once per event card
+  }, [e.id, freezeLast, trimStart, videoSrc]);
 
   useEffect(() => {
     if (showText && videoDone) return;
@@ -520,6 +545,7 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     const kickTryPlay = () => {
       if (startedRef.current || finishedRef.current || (playedEventIntros.has(e.id) && showText)) return;
       startedRef.current = true;
+      ensureVideoSrc();
       video.muted = true;
       video.defaultMuted = true;
       video.playsInline = true;
@@ -666,11 +692,10 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
             />
             <video
               ref={videoRef}
-              src={videoSrc}
               poster={posterSrc}
               playsInline
               muted
-              preload="metadata"
+              preload="none"
               controls={false}
               disablePictureInPicture
               style={{

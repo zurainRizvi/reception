@@ -10,6 +10,7 @@ import ScratchReveal from '@/components/reveal/ScratchReveal';
 import { Blessing, Countdown, EventCard, EventSchedule } from '@/components/events/EventSections';
 import FarewellCard from '@/components/closing/FarewellCard';
 import ClosingStage from '@/components/closing/ClosingStage';
+import LazySnap from '@/components/shared/LazySnap';
 
 /** Loop 0:27 – 1:45 of the invitation track. */
 const MUSIC_SEGMENTS = [{ start: 27, end: 105 }] as const;
@@ -17,7 +18,8 @@ const MUSIC_SEGMENTS = [{ start: 27, end: 105 }] as const;
 export default function Invitation() {
   const [locale, setLocale] = useState<Locale>('en');
   const [playing, setPlaying] = useState(false);
-  const [contentReady, setContentReady] = useState(false);
+  /** Light pages (no event/closing videos) — safe once the curtain is painting. */
+  const [storyReady, setStoryReady] = useState(false);
   const audio = useRef<HTMLAudioElement>(null);
   const primed = useRef(false);
   const segmentIndex = useRef(0);
@@ -150,34 +152,7 @@ export default function Invitation() {
       layoutTimers.forEach((id) => window.clearTimeout(id));
       window.removeEventListener('resize', releaseTightScrollers);
     };
-  }, [contentReady, locale]);
-
-  // Warm event + closing videos after the curtain has a head start so guests
-  // rarely hit a cold buffer — without starving the opening clip's bandwidth.
-  useEffect(() => {
-    if (!contentReady) return;
-    const ids = ['waleema'] as const;
-    const paths = [...ids.map((id) => theme.events[id].video), theme.videos.closing];
-    const warmers: HTMLVideoElement[] = [];
-    const timers = paths.map((path, index) =>
-      window.setTimeout(() => {
-        const video = document.createElement('video');
-        video.muted = true;
-        video.playsInline = true;
-        video.preload = 'auto';
-        video.setAttribute('muted', '');
-        video.setAttribute('playsinline', '');
-        video.src = `${path}?v=${theme.videos.version}`;
-        warmers.push(video);
-      }, 1600 + index * 1800),
-    );
-
-    return () => {
-      timers.forEach((id) => window.clearTimeout(id));
-      // Leave HTTP cache intact — do not reset src/load on teardown.
-      warmers.length = 0;
-    };
-  }, [contentReady]);
+  }, [storyReady, locale]);
 
   useEffect(() => {
     const el = audio.current;
@@ -197,8 +172,6 @@ export default function Invitation() {
       }
     };
 
-    el.preload = 'auto';
-    el.load();
     el.addEventListener('loadedmetadata', prime);
     el.addEventListener('canplay', prime);
     if (el.readyState >= 1) prime();
@@ -221,6 +194,8 @@ export default function Invitation() {
   const startMusic = () => {
     const el = audio.current;
     if (!el) return;
+    // Load only after the guest taps — never compete with the opening curtain on first paint.
+    el.preload = 'auto';
     const seg = MUSIC_SEGMENTS[segmentIndex.current] ?? MUSIC_SEGMENTS[0];
     if (!primed.current || el.currentTime < seg.start - 0.5 || el.currentTime >= seg.end) {
       seekToSegment(0);
@@ -242,6 +217,7 @@ export default function Invitation() {
   const music = () => {
     if (!audio.current) return;
     if (audio.current.paused) {
+      audio.current.preload = 'auto';
       const seg = MUSIC_SEGMENTS[segmentIndex.current] ?? MUSIC_SEGMENTS[0];
       if (audio.current.currentTime < seg.start || audio.current.currentTime >= seg.end) {
         seekToSegment(segmentIndex.current);
@@ -260,20 +236,16 @@ export default function Invitation() {
       data-locale={locale}
       style={{ background: theme.colors.page, color: theme.colors.ink }}
     >
-      <audio ref={audio} src={wedding.musicPath} onTimeUpdate={handleAudioTimeUpdate} preload="auto" />
+      <audio ref={audio} src={wedding.musicPath} onTimeUpdate={handleAudioTimeUpdate} preload="none" />
 
       <OpeningStage
         locale={locale}
-        onBegin={() => {
-          startMusic();
-          // Mount below-fold pages during the curtain so videos/RSVP can buffer
-          // before guests swipe — without delaying the tap-gesture play().
-          window.setTimeout(() => setContentReady(true), 160);
-        }}
-        onHeroReady={() => setContentReady(true)}
+        onBegin={startMusic}
+        onCurtainPlaying={() => setStoryReady(true)}
+        onHeroReady={() => setStoryReady(true)}
       />
 
-      {contentReady && (
+      {storyReady && (
         <div style={{ position: 'relative', zIndex: 2, width: '100%', background: theme.colors.page }}>
           <div className="controls">
             <button type="button" onClick={music} aria-label={playing ? 'Mute music' : 'Play music'}>
@@ -287,14 +259,23 @@ export default function Invitation() {
           <Blessing locale={locale} />
           <ScratchReveal locale={locale} />
           <Countdown locale={locale} />
+
           {wedding.events.map((e, i) => (
             <React.Fragment key={e.id}>
-              <EventCard e={e} i={i} locale={locale} />
-              <EventSchedule eventId={e.id} locale={locale} />
+              <LazySnap>
+                <EventCard e={e} i={i} locale={locale} />
+              </LazySnap>
+              <LazySnap>
+                <EventSchedule eventId={e.id} locale={locale} />
+              </LazySnap>
             </React.Fragment>
           ))}
-          <FarewellCard locale={locale} />
-          <ClosingStage locale={locale} />
+          <LazySnap>
+            <FarewellCard locale={locale} />
+          </LazySnap>
+          <LazySnap>
+            <ClosingStage locale={locale} />
+          </LazySnap>
         </div>
       )}
     </main>
