@@ -1,3 +1,5 @@
+import { media } from '@/config/media';
+
 export type EventId = 'mehndi' | 'baraat' | 'waleema';
 export type WeddingEvent = {
   id: EventId;
@@ -60,7 +62,7 @@ export const wedding = {
     /** Used by the RSVP corner admin panel (override with NEXT_PUBLIC_ADMIN_PASSWORD). */
     adminPassword: 'zurain007!!',
   },
-  musicPath: '/audio/islamic-calm.mp3',
+  musicPath: media.music,
   social: {
     title: 'Waleema Reception — Zurain & Abeeha',
     description: 'Save the date for our Waleema. Lahore · 14 January 2027.',

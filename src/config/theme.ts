@@ -1,3 +1,5 @@
+import { media } from '@/config/media';
+
 export const theme = {
   colors: {
     page: '#F7F1E8',
@@ -31,8 +33,8 @@ export const theme = {
       scheduleAccent: '#D4782E',
       // Event-card media + readable overlay tokens
       bgImage: '/images/mehndi-bg.jpg',
-      video: '/videos/mehndi.mp4',
-      poster: '/videos/mehndi-poster.jpg',
+      video: media.videos.mehndi,
+      poster: media.videos.mehndiPoster,
       freezeLastFrame: true,
       // Lead-in is baked out of mehndi.mp4 — play from frame 0 for a smooth start.
       trimStart: 0,
@@ -58,8 +60,8 @@ export const theme = {
       scheduleInk: '#3A1E1E',
       scheduleInkSoft: '#6A4545',
       scheduleAccent: '#C45C5C',
-      video: '/videos/baraat.mp4',
-      poster: '/videos/baraat-poster.jpg',
+      video: media.videos.baraat,
+      poster: media.videos.baraatPoster,
       freezeLastFrame: true,
       // Lead-in is baked out of baraat.mp4 — play from frame 0 for a smooth start.
       trimStart: 0,
@@ -86,8 +88,8 @@ export const theme = {
       scheduleInkSoft: '#4A5F58',
       scheduleAccent: '#5C8F8F',
       bgImage: '/images/waleema-bg.jpg',
-      video: '/videos/waleema.mp4',
-      poster: '/videos/waleema-poster.jpg',
+      video: media.videos.waleema,
+      poster: media.videos.waleemaPoster,
       freezeLastFrame: true,
       // Lead-in is baked out of waleema.mp4 — play from frame 0 for a smooth start.
       trimStart: 0,
@@ -142,12 +144,12 @@ export const theme = {
   radius: '1.25rem',
   shadow: '0 18px 48px rgba(61, 52, 41, 0.10)',
   videos: {
-    opening: '/videos/opening.mp4',
-    openingPoster: '/videos/opening-poster.jpg',
-    closing: '/videos/closing.mp4',
-    closingPoster: '/videos/closing-poster.jpg',
+    opening: media.videos.opening,
+    openingPoster: media.videos.openingPoster,
+    closing: media.videos.closing,
+    closingPoster: media.videos.closingPoster,
     // Bump when remuxing/replacing public videos so immutable Cache-Control clients refetch.
-    version: '20261011d',
+    version: '20261011d-blob',
   },
 } as const;
 
