@@ -70,6 +70,11 @@ export default function Invitation() {
     const onWheel = (e: WheelEvent) => {
       const main = document.querySelector('main');
       if (!main) return;
+      // Opening curtain locks scroll until Zurain & Abeeha appear.
+      if (main.classList.contains('opening-locked')) {
+        e.preventDefault();
+        return;
+      }
       const target = e.target;
       if (target instanceof Node && main.contains(target)) return;
       if (e.deltaY === 0) return;

@@ -12,7 +12,7 @@ const CLOSING_RATE = 1.2;
  * Pop RSVP while curtains are mid-close (media seconds), not after the clip ends.
  * Closing clip is ~10s; curtains darken hard through ~0–5s — 2.8s is mid-motion.
  */
-const RSVP_AT_MEDIA_S = 2.8;
+const RSVP_AT_MEDIA_S = 3.5;
 /** Guests must reach RSVP even if the closing clip stalls on a slow network. */
 const RSVP_FAILSAFE_MS = 5500;
 

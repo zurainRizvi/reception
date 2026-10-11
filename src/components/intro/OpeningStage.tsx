@@ -22,10 +22,13 @@ type Props = {
 
 type Phase = 'awaitingTap' | 'curtain' | 'hero';
 
-/** Wall-clock overlay schedule (ms after tap) — independent of video buffering. */
-const INVITE_IN_MS = 3000; // Mrs. Hameed on the 3rd second
+/**
+ * Overlay schedule (ms) — armed from the first painted curtain frame at t≈0,
+ * not from the tap. Wall-clock-from-tap desynced after reload when decode lagged.
+ */
+const INVITE_IN_MS = 3000; // Mrs. Hameed on the 3rd second of curtain
 const INVITE_OUT_MS = 7000; // holds through the 7th second (+1s)
-const HERO_IN_MS = 8000; // Zurain & Abeeha on the 8th second
+const HERO_IN_MS = 8000; // Zurain & Abeeha on the 8th second of curtain
 /** Must match WeddingFizzyButton FIZZ_MS — OpeningStage owns the phase advance. */
 const SEAL_LIFT_MS = 1180;
 
@@ -34,6 +37,7 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
   const beganRef = useRef(false);
   const heroReadyRef = useRef(false);
   const curtainPlayingNotified = useRef(false);
+  const overlaysScheduledRef = useRef(false);
   const phaseRef = useRef<Phase>('awaitingTap');
   const timersRef = useRef<number[]>([]);
   const playRetryTimerRef = useRef<number | null>(null);
@@ -64,6 +68,15 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
     timersRef.current = [];
   };
 
+  const setOpeningScrollLocked = (locked: boolean) => {
+    const main = document.querySelector('main');
+    if (!main) return;
+    main.classList.toggle('opening-locked', locked);
+    if (locked) {
+      main.scrollTop = 0;
+    }
+  };
+
   const notifyCurtainPlaying = useCallback(() => {
     if (curtainPlayingNotified.current) return;
     curtainPlayingNotified.current = true;
@@ -80,38 +93,58 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
     notifyCurtainPlaying();
   }, [notifyCurtainPlaying]);
 
-  /** Only lift the poster once a real frame is on screen — avoids the black flash. */
-  const markVideoPainted = useCallback(() => {
-    if (videoPaintedRef.current) return;
-    const video = curtainRef.current;
-    if (!video || video.readyState < 2) return;
-    // ended/paused-at-end still counts as a decoded frame after reload quirks.
-    videoPaintedRef.current = true;
-    if (playRetryTimerRef.current != null) {
-      window.clearTimeout(playRetryTimerRef.current);
-      playRetryTimerRef.current = null;
-    }
-    notifyCurtainPlaying();
-    // Two rAFs so the browser commits the first decoded frame before we fade the poster.
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => setVideoPainted(true));
-    });
-  }, [notifyCurtainPlaying]);
-
   const revealHero = useCallback(() => {
     setShowInvite(false);
     setShowHeroCard(true);
     phaseRef.current = 'hero';
+    setPhase('hero');
+    // Names are up — allow scroll + show the cue.
+    setScrollCueReady(true);
+    setOpeningScrollLocked(false);
     if (!heroReadyRef.current) {
       heroReadyRef.current = true;
       onHeroReadyRef.current?.();
     }
   }, []);
 
+  /** Arm Mrs. Hameed / names from first real open frame so reload can't desync overlays. */
+  const scheduleOverlaysFromPaint = useCallback(() => {
+    if (overlaysScheduledRef.current) return;
+    overlaysScheduledRef.current = true;
+    timersRef.current.push(
+      window.setTimeout(() => setShowInvite(true), INVITE_IN_MS),
+      window.setTimeout(() => setShowInvite(false), INVITE_OUT_MS),
+      window.setTimeout(() => revealHero(), HERO_IN_MS),
+    );
+  }, [revealHero]);
+
+  /** Only lift the poster once a real frame near t=0 is on screen — avoids the black flash. */
+  const markVideoPainted = useCallback(() => {
+    if (videoPaintedRef.current) return;
+    const video = curtainRef.current;
+    if (!video || video.readyState < 2) return;
+    // Ignore a cached last-frame paint after reload — wait until we're near the start.
+    if (video.ended) return;
+    if (Number.isFinite(video.duration) && video.duration > 1 && video.currentTime > 0.85) return;
+
+    videoPaintedRef.current = true;
+    if (playRetryTimerRef.current != null) {
+      window.clearTimeout(playRetryTimerRef.current);
+      playRetryTimerRef.current = null;
+    }
+    notifyCurtainPlaying();
+    scheduleOverlaysFromPaint();
+    // Two rAFs so the browser commits the first decoded frame before we fade the poster.
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => setVideoPainted(true));
+    });
+  }, [notifyCurtainPlaying, scheduleOverlaysFromPaint]);
+
   useEffect(
     () => () => {
       clearTimers();
       if (playRetryTimerRef.current != null) window.clearTimeout(playRetryTimerRef.current);
+      setOpeningScrollLocked(false);
     },
     [],
   );
@@ -143,17 +176,23 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
     // Must run in the tap turn. Keep retrying until a frame paints — early taps
     // and post-reload cached media often reject the first play() or resume at ended.
     let tries = 0;
-    const attempt = () => {
+    const runPlay = () => {
       if (videoPaintedRef.current || !beganRef.current) return;
       prepareCurtain(video);
       const pending = video.play();
       void pending
         ?.then(() => {
+          // If we somehow started mid/end clip, rewind then wait for a start frame.
           try {
-            // Cached opens sometimes resume at the last frame after a reload.
-            if (video.ended || (Number.isFinite(video.duration) && video.duration > 0 && video.currentTime >= video.duration - 0.08)) {
-              video.currentTime = 0.001;
+            if (
+              video.ended ||
+              (Number.isFinite(video.duration) &&
+                video.duration > 0 &&
+                video.currentTime >= Math.min(0.85, Math.max(0.2, video.duration * 0.15)))
+            ) {
+              video.currentTime = 0;
               void video.play()?.catch(() => {});
+              return;
             }
           } catch {
             // ignore seek errors
@@ -162,20 +201,47 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
           if (!videoPaintedRef.current && tries < 30) {
             tries += 1;
             if (playRetryTimerRef.current != null) window.clearTimeout(playRetryTimerRef.current);
-            playRetryTimerRef.current = window.setTimeout(attempt, 280);
+            playRetryTimerRef.current = window.setTimeout(runPlay, 280);
           }
         })
         .catch(() => {
           tries += 1;
           if (tries > 30) return;
-          const retry = () => attempt();
+          const retry = () => attemptFromStart();
           video.addEventListener('canplay', retry, { once: true });
           video.addEventListener('loadeddata', retry, { once: true });
           if (playRetryTimerRef.current != null) window.clearTimeout(playRetryTimerRef.current);
           playRetryTimerRef.current = window.setTimeout(retry, 280);
         });
     };
-    attempt();
+
+    const attemptFromStart = () => {
+      if (videoPaintedRef.current || !beganRef.current) return;
+      prepareCurtain(video);
+      // Always open from t=0 after reload — cached "ended" state was desyncing overlays.
+      let needsSeek = false;
+      try {
+        if (video.readyState >= 1 && (video.ended || video.currentTime > 0.04)) {
+          needsSeek = true;
+          video.pause();
+          video.currentTime = 0;
+        }
+      } catch {
+        needsSeek = false;
+      }
+      if (needsSeek) {
+        const afterSeek = () => {
+          video.removeEventListener('seeked', afterSeek);
+          runPlay();
+        };
+        video.addEventListener('seeked', afterSeek);
+        window.setTimeout(afterSeek, 380);
+        return;
+      }
+      runPlay();
+    };
+
+    attemptFromStart();
   };
 
   /**
@@ -197,7 +263,7 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
       video.addEventListener('playing', finish, { once: true });
       video.addEventListener('timeupdate', finish, { once: true });
     }
-    timersRef.current.push(window.setTimeout(finish, 650));
+    timersRef.current.push(window.setTimeout(finish, 900));
   }, [advanceToCurtain, notifyCurtainPlaying]);
 
   /** Runs on tap (same turn as user gesture) so iOS allows video + music. */
@@ -205,6 +271,8 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
     if (beganRef.current) return;
     beganRef.current = true;
 
+    // Guests stay on the opening page until Zurain & Abeeha appear.
+    setOpeningScrollLocked(true);
     playCurtainNow();
     try {
       onBeginRef.current();
@@ -213,20 +281,12 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
     }
     setShowInvite(false);
     setShowHeroCard(false);
+    setScrollCueReady(false);
+    overlaysScheduledRef.current = false;
     clearTimers();
 
-    timersRef.current.push(
-      // Failsafe only — prefer beginAfterFizz syncing to the first painted frame.
-      window.setTimeout(() => advanceToCurtain(), SEAL_LIFT_MS + 900),
-      window.setTimeout(() => setShowInvite(true), INVITE_IN_MS),
-      window.setTimeout(() => setShowInvite(false), INVITE_OUT_MS),
-      window.setTimeout(() => {
-        revealHero();
-        phaseRef.current = 'hero';
-        setPhase('hero');
-      }, HERO_IN_MS),
-      window.setTimeout(() => setScrollCueReady(true), 5000),
-    );
+    // Seal failsafe only — invite/hero timers arm from markVideoPainted.
+    timersRef.current.push(window.setTimeout(() => advanceToCurtain(), SEAL_LIFT_MS + 1200));
   };
 
   /** After the fizzy burst — lift seal as soon as the curtain is painting. */
@@ -237,8 +297,6 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
   const handleCurtainEnded = () => {
     if (!beganRef.current) return;
     revealHero();
-    phaseRef.current = 'hero';
-    setPhase('hero');
   };
 
   return (
@@ -249,8 +307,8 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
         width: '100%',
         // Match curtain burgundy so any brief gap never reads as black.
         background: '#3a0a14',
-        // Let swipe / wheel reach the scrolling <main>; the video must not capture them.
-        touchAction: 'pan-y',
+        // Block page scroll until names appear; after hero, pan-y reaches <main>.
+        touchAction: showHero ? 'pan-y' : 'none',
       }}
     >
       <video

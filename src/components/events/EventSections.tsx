@@ -461,18 +461,12 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       video.setAttribute('webkit-playsinline', '');
     };
 
-    const onTimeUpdate = () => {
-      // Lock "played" only after real progress past the trim — not on a brief play() blip.
-      if (video.currentTime - trimStart >= 0.35) {
-        playedEventIntros.add(e.id);
-      }
-      if (video.currentTime - trimStart >= TEXT_AT) revealText(true);
-    };
-
-    const onEnded = () => finishVideo(true);
+    let crossedTrim = trimStart <= 0;
+    let zoomStarted = false;
 
     const startZoom = () => {
-      if (!hasZoom) return;
+      if (!hasZoom || zoomStarted) return;
+      zoomStarted = true;
       if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
         setZoomSecs(0);
         setZoomActive(true);
@@ -488,38 +482,70 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       });
     };
 
-    const revealMedia = () => {
+    const armPostTrimTimers = () => {
+      if (textTimerRef.current != null) window.clearTimeout(textTimerRef.current);
+      if (scrollCueTimerRef.current != null) window.clearTimeout(scrollCueTimerRef.current);
+      textTimerRef.current = window.setTimeout(() => revealText(true), Math.round(TEXT_AT * 1000));
+      scrollCueTimerRef.current = window.setTimeout(() => setShowScrollCue(true), 5000);
+      startZoom();
+    };
+
+    /** Reveal under the poster once we reach trimStart — never seek (seeks stutter / break Waleema). */
+    const revealMediaIfPastTrim = () => {
+      if (finishedRef.current) return;
+      if (video.currentTime + 0.02 < trimStart) return;
+      if (!crossedTrim) {
+        crossedTrim = true;
+        armPostTrimTimers();
+      }
       setMediaVisible(true);
     };
 
+    const onTimeUpdate = () => {
+      revealMediaIfPastTrim();
+      // Lock "played" only after real progress past the trim — not on a brief play() blip.
+      if (video.currentTime - trimStart >= 0.35) {
+        playedEventIntros.add(e.id);
+      }
+      if (video.currentTime - trimStart >= TEXT_AT) revealText(true);
+    };
+
+    const onEnded = () => finishVideo(true);
+
     const beginPlayback = () => {
       clearTimers();
-      textTimerRef.current = window.setTimeout(() => revealText(true), Math.round(TEXT_AT * 1000));
-      scrollCueTimerRef.current = window.setTimeout(() => setShowScrollCue(true), 5000);
+      crossedTrim = trimStart <= 0;
+      // Failsafe covers the hidden trim lead-in + the visible clip.
       const playWindowMs =
-        Number.isFinite(video.duration) && video.duration > trimStart
-          ? Math.round((video.duration - trimStart + 1.25) * 1000)
-          : 10000;
+        Number.isFinite(video.duration) && video.duration > 0
+          ? Math.round((video.duration + 1.25) * 1000)
+          : Math.round((trimStart + 10) * 1000);
       failSafeRef.current = window.setTimeout(() => finishVideo(false), playWindowMs);
-      startZoom();
+      if (trimStart <= 0) armPostTrimTimers();
 
       const attemptPlay = (retriesLeft: number) => {
         if (finishedRef.current) return;
         prepare();
         video.preload = 'auto';
+        // Prefer a clean start without seeking mid-buffer. Only rewind if ended/stale.
+        try {
+          if (video.ended || (video.readyState >= 1 && video.currentTime > 0.35 && video.paused)) {
+            video.currentTime = 0;
+          }
+        } catch {
+          // ignore
+        }
         const pending = video.play();
         void pending
           ?.then(() => {
-            // Already parked on trimStart before play — no mid-play seek (that caused the stutter).
-            revealMedia();
+            revealMediaIfPastTrim();
           })
           .catch(() => {
             if (retriesLeft <= 0) {
-              // Show copy for a blank wait, but NEVER lock the intro as played —
-              // that was why Baraat/Waleema stayed frozen after one cold failure.
+              // Show copy for a blank wait, but NEVER lock the intro as played.
               revealText(false);
               setShowScrollCue(true);
-              revealMedia();
+              setMediaVisible(true);
               startedRef.current = false;
               window.setTimeout(() => {
                 if (!finishedRef.current) kickTryPlay();
@@ -535,38 +561,6 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       attemptPlay(8);
     };
 
-    /** Seek to trimStart while still under the poster, then play — smooth from frame one. */
-    const parkAtTrimThenPlay = () => {
-      if (finishedRef.current) return;
-
-      if (trimStart <= 0) {
-        beginPlayback();
-        return;
-      }
-
-      if (Math.abs(video.currentTime - trimStart) <= 0.05) {
-        beginPlayback();
-        return;
-      }
-
-      let settled = false;
-      const settle = () => {
-        if (settled || finishedRef.current) return;
-        settled = true;
-        video.removeEventListener('seeked', settle);
-        beginPlayback();
-      };
-      video.addEventListener('seeked', settle);
-      try {
-        video.currentTime = trimStart;
-      } catch {
-        settle();
-        return;
-      }
-      // Faststart files usually seek quickly; don't wait forever.
-      window.setTimeout(settle, 420);
-    };
-
     const kickTryPlay = () => {
       if (startedRef.current || finishedRef.current) return;
       if (playedEventIntros.has(e.id) && videoDone) return;
@@ -579,10 +573,9 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       const kickoff = () => {
         if (kickedOff || finishedRef.current) return;
         kickedOff = true;
-        parkAtTrimThenPlay();
+        beginPlayback();
       };
 
-      // Wait for a bufferable frame before seeking — avoids cold-seek stalls.
       if (video.readyState >= 2) {
         kickoff();
       } else {
@@ -595,7 +588,7 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('ended', onEnded);
     const onPlaying = () => {
-      revealMedia();
+      revealMediaIfPastTrim();
     };
     video.addEventListener('playing', onPlaying);
     const onError = () => {
@@ -607,26 +600,13 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     };
     video.addEventListener('error', onError);
 
-    // Warm buffer + pre-park at trimStart while the guest is still a screen away.
+    // Warm the file nearby — do not seek; seeking here caused Baraat stutter after reload.
     const warmObserver = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
         if (!entry?.isIntersecting || startedRef.current || finishedRef.current) return;
         prepare();
         video.preload = 'auto';
-        const prepark = () => {
-          if (startedRef.current || finishedRef.current || trimStart <= 0) return;
-          if (video.readyState < 1) return;
-          if (Math.abs(video.currentTime - trimStart) <= 0.05) return;
-          try {
-            video.currentTime = trimStart;
-          } catch {
-            // ignore
-          }
-        };
-        video.addEventListener('loadeddata', prepark, { once: true });
-        video.addEventListener('canplay', prepark, { once: true });
-        if (video.readyState >= 1) prepark();
       },
       { root: null, rootMargin: '120% 0px', threshold: 0 }
     );

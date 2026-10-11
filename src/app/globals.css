@@ -189,6 +189,13 @@ main.snap-paused {
   overflow-anchor: none;
 }
 
+/* Opening curtain: freeze the scroller until Zurain & Abeeha pop up. */
+main.opening-locked {
+  overflow-y: hidden !important;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
 /* While typing/autofilling RSVP on the closing video, don't re-snap away. */
 main.snap-paused .closing-stage {
   scroll-snap-align: none;
