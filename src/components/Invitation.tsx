@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Music2, VolumeX } from 'lucide-react';
 import { wedding } from '@/config/wedding';
 import { theme } from '@/config/theme';
@@ -191,17 +191,23 @@ export default function Invitation() {
     primed.current = true;
   };
 
-  const startMusic = () => {
+  const startMusic = useCallback(() => {
     const el = audio.current;
     if (!el) return;
     // Load only after the guest taps — never compete with the opening curtain on first paint.
-    el.preload = 'auto';
-    const seg = MUSIC_SEGMENTS[segmentIndex.current] ?? MUSIC_SEGMENTS[0];
-    if (!primed.current || el.currentTime < seg.start - 0.5 || el.currentTime >= seg.end) {
-      seekToSegment(0);
+    try {
+      el.preload = 'auto';
+      const seg = MUSIC_SEGMENTS[segmentIndex.current] ?? MUSIC_SEGMENTS[0];
+      if (!primed.current || el.currentTime < seg.start - 0.5 || el.currentTime >= seg.end) {
+        seekToSegment(0);
+      }
+    } catch {
+      // Seeking before audio has data must never block the curtain timeline.
     }
-    el.play().then(() => setPlaying(true)).catch(() => {});
-  };
+    void el.play().then(() => setPlaying(true)).catch(() => {});
+  }, []);
+
+  const markStoryReady = useCallback(() => setStoryReady(true), []);
 
   const handleAudioTimeUpdate = () => {
     const el = audio.current;
@@ -241,8 +247,8 @@ export default function Invitation() {
       <OpeningStage
         locale={locale}
         onBegin={startMusic}
-        onCurtainPlaying={() => setStoryReady(true)}
-        onHeroReady={() => setStoryReady(true)}
+        onCurtainPlaying={markStoryReady}
+        onHeroReady={markStoryReady}
       />
 
       {storyReady && (

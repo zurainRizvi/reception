@@ -26,14 +26,20 @@ type Phase = 'awaitingTap' | 'curtain' | 'hero';
 const INVITE_IN_MS = 3000; // Mrs. Hameed on the 3rd second
 const INVITE_OUT_MS = 7000; // holds through the 7th second (+1s)
 const HERO_IN_MS = 8000; // Zurain & Abeeha on the 8th second
+/** Must match WeddingFizzyButton FIZZ_MS — OpeningStage owns the phase advance. */
+const SEAL_LIFT_MS = 1180;
 
 export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHeroReady }: Props) {
   const curtainRef = useRef<HTMLVideoElement>(null);
   const beganRef = useRef(false);
   const heroReadyRef = useRef(false);
   const curtainPlayingNotified = useRef(false);
+  const phaseRef = useRef<Phase>('awaitingTap');
   const timersRef = useRef<number[]>([]);
   const playRetryTimerRef = useRef<number | null>(null);
+  const onBeginRef = useRef(onBegin);
+  const onCurtainPlayingRef = useRef(onCurtainPlaying);
+  const onHeroReadyRef = useRef(onHeroReady);
   const [phase, setPhase] = useState<Phase>('awaitingTap');
   const [showInvite, setShowInvite] = useState(false);
   const [showHeroCard, setShowHeroCard] = useState(false);
@@ -47,38 +53,60 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
   const showTap = phase === 'awaitingTap';
   const showHero = showHeroCard || phase === 'hero';
 
+  useEffect(() => {
+    onBeginRef.current = onBegin;
+    onCurtainPlayingRef.current = onCurtainPlaying;
+    onHeroReadyRef.current = onHeroReady;
+  });
+
   const clearTimers = () => {
     timersRef.current.forEach((id) => window.clearTimeout(id));
     timersRef.current = [];
   };
 
+  const notifyCurtainPlaying = useCallback(() => {
+    if (curtainPlayingNotified.current) return;
+    curtainPlayingNotified.current = true;
+    onCurtainPlayingRef.current?.();
+  }, []);
+
+  const advanceToCurtain = useCallback(() => {
+    if (phaseRef.current !== 'awaitingTap') {
+      notifyCurtainPlaying();
+      return;
+    }
+    phaseRef.current = 'curtain';
+    setPhase('curtain');
+    notifyCurtainPlaying();
+  }, [notifyCurtainPlaying]);
+
   /** Only lift the poster once a real frame is on screen — avoids the black flash. */
   const markVideoPainted = useCallback(() => {
     if (videoPaintedRef.current) return;
     const video = curtainRef.current;
-    if (!video || video.paused || video.readyState < 2) return;
+    if (!video || video.readyState < 2) return;
+    // ended/paused-at-end still counts as a decoded frame after reload quirks.
     videoPaintedRef.current = true;
     if (playRetryTimerRef.current != null) {
       window.clearTimeout(playRetryTimerRef.current);
       playRetryTimerRef.current = null;
     }
-    if (!curtainPlayingNotified.current) {
-      curtainPlayingNotified.current = true;
-      onCurtainPlaying?.();
-    }
+    notifyCurtainPlaying();
     // Two rAFs so the browser commits the first decoded frame before we fade the poster.
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => setVideoPainted(true));
     });
-  }, [onCurtainPlaying]);
-  const revealHero = () => {
+  }, [notifyCurtainPlaying]);
+
+  const revealHero = useCallback(() => {
     setShowInvite(false);
     setShowHeroCard(true);
+    phaseRef.current = 'hero';
     if (!heroReadyRef.current) {
       heroReadyRef.current = true;
-      onHeroReady?.();
+      onHeroReadyRef.current?.();
     }
-  };
+  }, []);
 
   useEffect(
     () => () => {
@@ -88,24 +116,7 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
     [],
   );
 
-  const attachCurtain = useCallback((node: HTMLVideoElement | null) => {
-    curtainRef.current = node;
-    if (!node) return;
-    // iOS ignores a muted video that only has the React prop; the DOM property
-    // and playsinline attributes must exist before play().
-    node.muted = true;
-    node.defaultMuted = true;
-    node.volume = 0;
-    node.playsInline = true;
-    node.preload = 'auto';
-    node.setAttribute('muted', '');
-    node.setAttribute('playsinline', '');
-    node.setAttribute('webkit-playsinline', '');
-  }, []);
-
-  const playCurtainNow = () => {
-    const video = curtainRef.current;
-    if (!video) return;
+  const prepareCurtain = (video: HTMLVideoElement) => {
     video.muted = true;
     video.defaultMuted = true;
     video.volume = 0;
@@ -114,24 +125,55 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
     video.setAttribute('muted', '');
     video.setAttribute('playsinline', '');
     video.setAttribute('webkit-playsinline', '');
+  };
+
+  const attachCurtain = useCallback((node: HTMLVideoElement | null) => {
+    curtainRef.current = node;
+    if (!node) return;
+    // iOS ignores a muted video that only has the React prop; the DOM property
+    // and playsinline attributes must exist before play().
+    prepareCurtain(node);
+  }, []);
+
+  const playCurtainNow = () => {
+    const video = curtainRef.current;
+    if (!video) return;
+    prepareCurtain(video);
+
     // Must run in the tap turn. Keep retrying until a frame paints — early taps
-    // often hit NotAllowed/Abort while the poster-only first paint is still buffering.
+    // and post-reload cached media often reject the first play() or resume at ended.
     let tries = 0;
     const attempt = () => {
       if (videoPaintedRef.current || !beganRef.current) return;
-      video.muted = true;
-      video.defaultMuted = true;
-      video.volume = 0;
+      prepareCurtain(video);
       const pending = video.play();
-      void pending?.then(() => markVideoPainted()).catch(() => {
-        tries += 1;
-        if (tries > 30) return;
-        const retry = () => attempt();
-        video.addEventListener('canplay', retry, { once: true });
-        video.addEventListener('loadeddata', retry, { once: true });
-        if (playRetryTimerRef.current != null) window.clearTimeout(playRetryTimerRef.current);
-        playRetryTimerRef.current = window.setTimeout(retry, 320);
-      });
+      void pending
+        ?.then(() => {
+          try {
+            // Cached opens sometimes resume at the last frame after a reload.
+            if (video.ended || (Number.isFinite(video.duration) && video.duration > 0 && video.currentTime >= video.duration - 0.08)) {
+              video.currentTime = 0.001;
+              void video.play()?.catch(() => {});
+            }
+          } catch {
+            // ignore seek errors
+          }
+          markVideoPainted();
+          if (!videoPaintedRef.current && tries < 30) {
+            tries += 1;
+            if (playRetryTimerRef.current != null) window.clearTimeout(playRetryTimerRef.current);
+            playRetryTimerRef.current = window.setTimeout(attempt, 280);
+          }
+        })
+        .catch(() => {
+          tries += 1;
+          if (tries > 30) return;
+          const retry = () => attempt();
+          video.addEventListener('canplay', retry, { once: true });
+          video.addEventListener('loadeddata', retry, { once: true });
+          if (playRetryTimerRef.current != null) window.clearTimeout(playRetryTimerRef.current);
+          playRetryTimerRef.current = window.setTimeout(retry, 280);
+        });
     };
     attempt();
   };
@@ -143,7 +185,7 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
 
     playCurtainNow();
     try {
-      onBegin();
+      onBeginRef.current();
     } catch {
       // A failed music seek must not cancel the curtain.
     }
@@ -151,41 +193,32 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
     setShowHeroCard(false);
     clearTimers();
 
+    // UI timeline is owned here — never gate the seal lift on video paint.
+    // (Cached / stalled curtain after reload used to leave guests stuck on TAP.)
     timersRef.current.push(
+      window.setTimeout(() => advanceToCurtain(), SEAL_LIFT_MS),
       window.setTimeout(() => setShowInvite(true), INVITE_IN_MS),
       window.setTimeout(() => setShowInvite(false), INVITE_OUT_MS),
       window.setTimeout(() => {
         revealHero();
+        phaseRef.current = 'hero';
+        setPhase('hero');
       }, HERO_IN_MS),
       window.setTimeout(() => setScrollCueReady(true), 5000),
+      // Absolute failsafe if anything else goes wrong.
+      window.setTimeout(() => advanceToCurtain(), SEAL_LIFT_MS + 800),
     );
   };
 
-  /** After the fizzy burst — clear the tap overlay once the curtain is painting. */
+  /** Button callback after the fizzy burst — idempotent with the OpeningStage timer. */
   const beginAfterFizz = () => {
-    const finish = () => {
-      setPhase('curtain');
-      // Even if decode is slow, allow light pages to prepare after the seal lifts.
-      if (!curtainPlayingNotified.current) {
-        curtainPlayingNotified.current = true;
-        onCurtainPlaying?.();
-      }
-    };
-    if (videoPaintedRef.current) {
-      finish();
-      return;
-    }
-    const video = curtainRef.current;
-    if (video) {
-      video.addEventListener('playing', finish, { once: true });
-      video.addEventListener('timeupdate', finish, { once: true });
-    }
-    // Fallback so a stalled decode never leaves the seal stuck on screen.
-    timersRef.current.push(window.setTimeout(finish, 500));
+    advanceToCurtain();
   };
 
   const handleCurtainEnded = () => {
+    if (!beganRef.current) return;
     revealHero();
+    phaseRef.current = 'hero';
     setPhase('hero');
   };
 
