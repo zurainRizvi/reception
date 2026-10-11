@@ -22,6 +22,7 @@ export default function Invitation() {
   const [storyReady, setStoryReady] = useState(false);
   const audio = useRef<HTMLAudioElement>(null);
   const primed = useRef(false);
+  const wantMusic = useRef(false);
   const segmentIndex = useRef(0);
 
   useEffect(() => {
@@ -67,12 +68,40 @@ export default function Invitation() {
 
     /** Laptop: beige side margins are outside <main>; forward wheel so guests can still scroll. */
     let wheelLockUntil = 0;
+    let openingPinRaf = 0;
+    const mainEl = document.querySelector('main');
+    const pinOpeningScroll = () => {
+      const main = document.querySelector('main');
+      if (!main?.classList.contains('opening-locked')) return;
+      if (main.scrollTop !== 0) main.scrollTop = 0;
+    };
+    const stopOpeningPinLoop = () => {
+      if (openingPinRaf) {
+        window.cancelAnimationFrame(openingPinRaf);
+        openingPinRaf = 0;
+      }
+    };
+    const startOpeningPinLoop = () => {
+      stopOpeningPinLoop();
+      const tick = () => {
+        const main = document.querySelector('main');
+        if (!main?.classList.contains('opening-locked')) {
+          openingPinRaf = 0;
+          return;
+        }
+        if (main.scrollTop !== 0) main.scrollTop = 0;
+        openingPinRaf = window.requestAnimationFrame(tick);
+      };
+      openingPinRaf = window.requestAnimationFrame(tick);
+    };
     const onWheel = (e: WheelEvent) => {
       const main = document.querySelector('main');
       if (!main) return;
-      // Opening curtain locks scroll until Zurain & Abeeha appear.
+      // Opening curtain pins scroll until Zurain & Abeeha appear (no overflow:hidden).
       if (main.classList.contains('opening-locked')) {
         e.preventDefault();
+        pinOpeningScroll();
+        startOpeningPinLoop();
         return;
       }
       const target = e.target;
@@ -86,22 +115,58 @@ export default function Invitation() {
       const dir = e.deltaY > 0 ? 1 : -1;
       main.scrollBy({ top: dir * main.clientHeight, behavior: 'smooth' });
     };
+    const onTouchMove = (e: TouchEvent) => {
+      const main = document.querySelector('main');
+      if (!main?.classList.contains('opening-locked')) return;
+      // Block the swipe without toggling overflow (overflow:hidden mid-gesture freezes WebKit).
+      e.preventDefault();
+      pinOpeningScroll();
+      startOpeningPinLoop();
+    };
+    const onScroll = () => {
+      pinOpeningScroll();
+      if (document.querySelector('main')?.classList.contains('opening-locked')) {
+        startOpeningPinLoop();
+      } else {
+        stopOpeningPinLoop();
+      }
+    };
+    const onOpeningLockClass = () => {
+      if (document.querySelector('main')?.classList.contains('opening-locked')) {
+        startOpeningPinLoop();
+      } else {
+        stopOpeningPinLoop();
+      }
+    };
+    const lockWatcher =
+      mainEl &&
+      new MutationObserver(onOpeningLockClass);
+    if (mainEl && lockWatcher) {
+      lockWatcher.observe(mainEl, { attributes: true, attributeFilter: ['class'] });
+    }
 
     window.addEventListener('resize', apply);
     window.visualViewport?.addEventListener('resize', apply);
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('focusout', onFocusOut);
     window.addEventListener('wheel', onWheel, { passive: false });
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    // Listen on main — scroll does not bubble to document reliably.
+    mainEl?.addEventListener('scroll', onScroll, { passive: true });
     document.addEventListener('gesturestart', blockZoom, { passive: false });
     document.addEventListener('gesturechange', blockZoom, { passive: false });
     document.addEventListener('gestureend', blockZoom, { passive: false });
     document.addEventListener('touchend', blockDoubleTapZoom, { passive: false });
     return () => {
+      stopOpeningPinLoop();
+      lockWatcher?.disconnect();
       window.removeEventListener('resize', apply);
       window.visualViewport?.removeEventListener('resize', apply);
       document.removeEventListener('focusin', onFocusIn);
       document.removeEventListener('focusout', onFocusOut);
       window.removeEventListener('wheel', onWheel);
+      document.removeEventListener('touchmove', onTouchMove);
+      mainEl?.removeEventListener('scroll', onScroll);
       document.removeEventListener('gesturestart', blockZoom);
       document.removeEventListener('gesturechange', blockZoom);
       document.removeEventListener('gestureend', blockZoom);
@@ -174,7 +239,7 @@ export default function Invitation() {
     if (!el) return;
 
     const prime = () => {
-      if (primed.current) return;
+      if (primed.current || wantMusic.current) return;
       try {
         const start = MUSIC_SEGMENTS[0].start;
         if (Math.abs(el.currentTime - start) > 0.35) {
@@ -191,9 +256,57 @@ export default function Invitation() {
     el.addEventListener('canplay', prime);
     if (el.readyState >= 1) prime();
 
+    // Warm metadata after first paint so cold first taps aren't racing preload=none.
+    const warm = () => {
+      if (wantMusic.current || !audio.current) return;
+      audio.current.preload = 'metadata';
+    };
+    const warmTimer = window.setTimeout(warm, 900);
+    const idleId =
+      typeof window.requestIdleCallback === 'function'
+        ? window.requestIdleCallback(warm, { timeout: 2200 })
+        : null;
+
     return () => {
       el.removeEventListener('loadedmetadata', prime);
       el.removeEventListener('canplay', prime);
+      window.clearTimeout(warmTimer);
+      if (idleId != null && typeof window.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(idleId);
+      }
+    };
+  }, []);
+
+  // Cold first load: if play() lost the gesture race, resume on the next user gesture.
+  useEffect(() => {
+    const resumeIfNeeded = () => {
+      const el = audio.current;
+      if (!wantMusic.current || !el || !el.paused) return;
+      el.preload = 'auto';
+      void el
+        .play()
+        .then(() => {
+          setPlaying(true);
+          try {
+            const seg = MUSIC_SEGMENTS[0];
+            if (el.readyState >= 1 && (el.currentTime < seg.start - 0.5 || el.currentTime >= seg.end)) {
+              el.currentTime = seg.start;
+              segmentIndex.current = 0;
+              primed.current = true;
+            }
+          } catch {
+            // ignore
+          }
+        })
+        .catch(() => {});
+    };
+    window.addEventListener('pointerdown', resumeIfNeeded, { passive: true });
+    window.addEventListener('touchstart', resumeIfNeeded, { passive: true });
+    window.addEventListener('keydown', resumeIfNeeded);
+    return () => {
+      window.removeEventListener('pointerdown', resumeIfNeeded);
+      window.removeEventListener('touchstart', resumeIfNeeded);
+      window.removeEventListener('keydown', resumeIfNeeded);
     };
   }, []);
 
@@ -209,17 +322,61 @@ export default function Invitation() {
   const startMusic = useCallback(() => {
     const el = audio.current;
     if (!el) return;
-    // Load only after the guest taps — never compete with the opening curtain on first paint.
-    try {
-      el.preload = 'auto';
-      const seg = MUSIC_SEGMENTS[segmentIndex.current] ?? MUSIC_SEGMENTS[0];
-      if (!primed.current || el.currentTime < seg.start - 0.5 || el.currentTime >= seg.end) {
-        seekToSegment(0);
+    wantMusic.current = true;
+    el.preload = 'auto';
+
+    const seekIntoSegmentIfReady = () => {
+      try {
+        if (el.readyState < 1) return;
+        const seg = MUSIC_SEGMENTS[segmentIndex.current] ?? MUSIC_SEGMENTS[0];
+        if (el.currentTime < seg.start - 0.5 || el.currentTime >= seg.end) {
+          el.currentTime = seg.start;
+          segmentIndex.current = 0;
+          primed.current = true;
+        }
+      } catch {
+        // Seeking before audio has data must never block the curtain timeline.
       }
-    } catch {
-      // Seeking before audio has data must never block the curtain timeline.
-    }
-    void el.play().then(() => setPlaying(true)).catch(() => {});
+    };
+
+    const attemptPlay = () => {
+      if (!wantMusic.current) return;
+      // Play first inside the tap gesture — seeking a cold element cancels iOS play().
+      void el
+        .play()
+        .then(() => {
+          setPlaying(true);
+          seekIntoSegmentIfReady();
+        })
+        .catch(() => {
+          try {
+            el.load();
+          } catch {
+            // ignore
+          }
+        });
+    };
+
+    attemptPlay();
+    const onReady = () => {
+      if (!wantMusic.current) return;
+      if (!el.paused) {
+        seekIntoSegmentIfReady();
+        return;
+      }
+      attemptPlay();
+    };
+    el.addEventListener('canplay', onReady);
+    el.addEventListener('canplaythrough', onReady);
+    el.addEventListener('loadeddata', onReady);
+    el.addEventListener('loadedmetadata', onReady);
+    window.setTimeout(() => {
+      el.removeEventListener('canplay', onReady);
+      el.removeEventListener('canplaythrough', onReady);
+      el.removeEventListener('loadeddata', onReady);
+      el.removeEventListener('loadedmetadata', onReady);
+      if (wantMusic.current && el.paused) attemptPlay();
+    }, 12000);
   }, []);
 
   const markStoryReady = useCallback(() => setStoryReady(true), []);
@@ -257,7 +414,7 @@ export default function Invitation() {
       data-locale={locale}
       style={{ background: theme.colors.page, color: theme.colors.ink }}
     >
-      <audio ref={audio} src={wedding.musicPath} onTimeUpdate={handleAudioTimeUpdate} preload="none" />
+      <audio ref={audio} src={wedding.musicPath} onTimeUpdate={handleAudioTimeUpdate} preload="metadata" />
 
       <OpeningStage
         locale={locale}

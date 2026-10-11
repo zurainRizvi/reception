@@ -9,7 +9,7 @@ import RsvpCard from '@/components/rsvp/RsvpCard';
 /** Keep the intentional ~1.2× close — do not slow this back to 1.0. */
 const CLOSING_RATE = 1.2;
 /** Pop RSVP while curtains are mid-close (media seconds). */
-const RSVP_AT_MEDIA_S = 4.8;
+const RSVP_AT_MEDIA_S = 4.97;
 /** Guests must reach RSVP even if the closing clip stalls on a slow network. */
 const RSVP_FAILSAFE_MS = 6500;
 

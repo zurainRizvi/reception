@@ -42,6 +42,8 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
   const lockedScrollTop = useRef(0);
   const unlockTimerRef = useRef<number | null>(null);
   const isRtl = locale === 'ur';
+  /** Waleema-only invite: one date — tighten the foil so it doesn't float in empty space. */
+  const singleEvent = wedding.events.length === 1;
 
   /** Always restore scroll — never restore a nested "hidden" captured mid-scratch. */
   const unlockMainScroll = useCallback(() => {
@@ -404,9 +406,15 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
 
       <svg width="0" height="0" aria-hidden style={{ position: 'absolute' }}>
         <defs>
-          {/* Soft arched invitation tablet — room for a three-event index */}
+          {/* Soft arched invitation tablet — taller for three events, compact for Waleema-only. */}
           <clipPath id="scratch-card-clip" clipPathUnits="objectBoundingBox">
-            <path d="M0.08,0.26 C0.08,0.08 0.26,0.015 0.5,0.015 C0.74,0.015 0.92,0.08 0.92,0.26 L0.92,0.9 Q0.92,0.975 0.8,0.975 L0.2,0.975 Q0.08,0.975 0.08,0.9 Z" />
+            <path
+              d={
+                singleEvent
+                  ? 'M0.1,0.22 C0.1,0.07 0.28,0.02 0.5,0.02 C0.72,0.02 0.9,0.07 0.9,0.22 L0.9,0.86 Q0.9,0.96 0.78,0.96 L0.22,0.96 Q0.1,0.96 0.1,0.86 Z'
+                  : 'M0.08,0.26 C0.08,0.08 0.26,0.015 0.5,0.015 C0.74,0.015 0.92,0.08 0.92,0.26 L0.92,0.9 Q0.92,0.975 0.8,0.975 L0.2,0.975 Q0.08,0.975 0.08,0.9 Z'
+              }
+            />
           </clipPath>
         </defs>
       </svg>
@@ -424,9 +432,13 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'flex-start',
-          padding: isRtl
-            ? 'clamp(56px, 9vh, 88px) 18px max(40px, calc(env(safe-area-inset-bottom, 0px) + 32px))'
-            : 'clamp(68px, 11vh, 104px) 24px max(40px, calc(env(safe-area-inset-bottom, 0px) + 32px))',
+          padding: singleEvent
+            ? isRtl
+              ? 'clamp(72px, 12vh, 110px) 18px max(24px, calc(env(safe-area-inset-bottom, 0px) + 18px))'
+              : 'clamp(84px, 13vh, 120px) 24px max(24px, calc(env(safe-area-inset-bottom, 0px) + 18px))'
+            : isRtl
+              ? 'clamp(56px, 9vh, 88px) 18px max(40px, calc(env(safe-area-inset-bottom, 0px) + 32px))'
+              : 'clamp(68px, 11vh, 104px) 24px max(40px, calc(env(safe-area-inset-bottom, 0px) + 32px))',
           transform: 'none',
         }}
       >
@@ -435,15 +447,21 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
           style={{
             color: pink.main,
             letterSpacing: isRtl ? '0.1em' : '0.28em',
-            marginBottom: 8,
+            marginBottom: singleEvent ? 6 : 8,
           }}
         >
-          {isRtl ? 'محبت و مسرت کے خاص دن' : 'SAVE THE AUSPICIOUS DATES'}
+          {singleEvent
+            ? isRtl
+              ? 'محبت و مسرت کی خاص شب'
+              : 'SAVE THE AUSPICIOUS EVENING'
+            : isRtl
+              ? 'محبت و مسرت کے خاص دن'
+              : 'SAVE THE AUSPICIOUS DATES'}
         </p>
         <h2
           style={{
             color: theme.colors.ink,
-            margin: '4px 0 8px',
+            margin: singleEvent ? '2px 0 6px' : '4px 0 8px',
             fontFamily: isRtl ? "'Amiri', serif" : "'Cormorant Garamond', serif",
             lineHeight: isRtl ? 1.65 : 1.12,
             fontSize: isRtl ? 'clamp(22px, 6vw, 28px)' : 'clamp(24px, 6.5vw, 30px)',
@@ -454,14 +472,14 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
             <>
               تواریخ کی نقاب کشائی
               <em style={{ color: pink.main, display: 'block', fontStyle: 'normal', fontSize: '0.78em', marginTop: 6 }}>
-                تین تقریبات، ایک جشن
+                {singleEvent ? 'ولیمہ کی تاریخ' : 'تین تقریبات، ایک جشن'}
               </em>
             </>
           ) : (
             <>
               Scratch to Reveal
               <em style={{ color: pink.main, display: 'block', fontStyle: 'italic', fontSize: '0.76em', marginTop: 4 }}>
-                Our Celebration Dates
+                {singleEvent ? 'Our Waleema Date' : 'Our Celebration Dates'}
               </em>
             </>
           )}
@@ -471,9 +489,9 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
         <div
           aria-hidden
           style={{
-            width: 'min(170px, 44vw)',
+            width: singleEvent ? 'min(140px, 38vw)' : 'min(170px, 44vw)',
             aspectRatio: '340 / 200',
-            margin: '0 auto 2px',
+            margin: singleEvent ? '0 auto 4px' : '0 auto 2px',
             flexShrink: 0,
             backgroundColor: 'transparent',
             backgroundImage: 'url(/images/floral-frame.png)',
@@ -483,7 +501,7 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
           }}
         />
 
-        <div style={{ flex: '1 1 auto', minHeight: 8, maxHeight: 36, width: '100%' }} aria-hidden />
+        {!singleEvent && <div style={{ flex: '1 1 auto', minHeight: 8, maxHeight: 36, width: '100%' }} aria-hidden />}
 
         <div
           style={{
@@ -491,7 +509,8 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
             flexDirection: 'column',
             alignItems: 'center',
             flexShrink: 0,
-            marginBottom: 'clamp(10px, 2.4vh, 22px)',
+            marginTop: singleEvent ? 4 : 0,
+            marginBottom: singleEvent ? 8 : 'clamp(10px, 2.4vh, 22px)',
             width: '100%',
           }}
         >
@@ -501,9 +520,9 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
             className="scratch-surface"
             style={{
               position: 'relative',
-              width: 'min(268px, 78vw)',
+              width: singleEvent ? 'min(256px, 76vw)' : 'min(268px, 78vw)',
               // Same footprint in EN/UR so locale swaps don't resize the foil stage.
-              height: 'min(280px, 54vh)',
+              height: singleEvent ? 'min(210px, 36vh)' : 'min(280px, 54vh)',
               margin: '0 auto 10px',
               flexShrink: 0,
               zIndex: 3,
@@ -536,7 +555,13 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  padding: isRtl ? '36px 22px 28px' : '52px 28px 34px',
+                  padding: singleEvent
+                    ? isRtl
+                      ? '28px 24px 22px'
+                      : '34px 28px 24px'
+                    : isRtl
+                      ? '36px 22px 28px'
+                      : '52px 28px 34px',
                   boxSizing: 'border-box',
                   pointerEvents: 'none',
                 }}

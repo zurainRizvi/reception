@@ -71,10 +71,21 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
   const setOpeningScrollLocked = (locked: boolean) => {
     const main = document.querySelector('main');
     if (!main) return;
-    main.classList.toggle('opening-locked', locked);
     if (locked) {
+      main.classList.add('opening-locked');
       main.scrollTop = 0;
+      return;
     }
+    main.classList.remove('opening-locked');
+    // After prevented touchmoves, nudge the scrollport so first-load swipe works on WebKit.
+    const top = main.scrollTop;
+    requestAnimationFrame(() => {
+      main.scrollTop = top + 1;
+      main.scrollTop = top;
+      requestAnimationFrame(() => {
+        main.scrollTop = top;
+      });
+    });
   };
 
   const notifyCurtainPlaying = useCallback(() => {
@@ -273,6 +284,9 @@ export default function OpeningStage({ locale, onBegin, onCurtainPlaying, onHero
 
     // Guests stay on the opening page until Zurain & Abeeha appear.
     setOpeningScrollLocked(true);
+    // Mount below-fold pages on tap so first-load swipe has somewhere to go
+    // even if curtain decode is still cold.
+    notifyCurtainPlaying();
     playCurtainNow();
     try {
       onBeginRef.current();

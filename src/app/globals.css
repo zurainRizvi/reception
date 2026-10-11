@@ -189,11 +189,13 @@ main.snap-paused {
   overflow-anchor: none;
 }
 
-/* Opening curtain: freeze the scroller until Zurain & Abeeha pop up. */
+/*
+ * Opening curtain: pin guests on the first page until Zurain & Abeeha appear.
+ * Do NOT set overflow-y:hidden here — changing overflow mid-swipe freezes
+ * WebKit scrollports even after the class is removed.
+ */
 main.opening-locked {
-  overflow-y: hidden !important;
   overscroll-behavior: none;
-  touch-action: none;
 }
 
 /* While typing/autofilling RSVP on the closing video, don't re-snap away. */
