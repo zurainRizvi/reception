@@ -117,8 +117,18 @@ export default function Invitation() {
           node.classList.contains('event-schedule') ||
           node.classList.contains('rsvp') ||
           node.classList.contains('farewell') ||
+          // Growing these cards on EN↔UR reflow makes background-size:cover look like a zoom.
+          node.classList.contains('reveal-date-card') ||
+          node.classList.contains('count-card') ||
           (node.classList.contains('blessing') && main.getAttribute('data-locale') === 'ur')
         ) {
+          if (node.classList.contains('reveal-date-card') || node.classList.contains('count-card')) {
+            // Undo any prior auto-grow from an earlier locale pass.
+            node.style.height = '';
+            node.style.minHeight = '';
+            node.style.maxHeight = '';
+            node.style.overflowY = 'hidden';
+          }
           return;
         }
         // Event intro pages must never become nested scrollports — that traps

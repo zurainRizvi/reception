@@ -371,10 +371,6 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
       className="reveal-date-card"
       style={{
         backgroundColor: backdrop,
-        backgroundImage: 'url(/images/scratch-reveal-bg.jpg)',
-        backgroundSize: 'cover',
-        backgroundPosition: 'center top',
-        backgroundRepeat: 'no-repeat',
         borderTop: `1px solid ${pink.line}`,
         borderBottom: `1px solid ${pink.line}`,
         color: theme.colors.ink,
@@ -385,6 +381,26 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
         justifyContent: 'flex-start',
       }}
     >
+      {/*
+        Flower art lives on a fixed viewport-sized layer — never on the flowing
+        content box — so EN↔UR text reflow cannot resample/zoom the backdrop.
+      */}
+      <div
+        aria-hidden
+        className="reveal-date-backdrop"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 0,
+          backgroundColor: backdrop,
+          backgroundImage: 'url(/images/scratch-reveal-bg.jpg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center top',
+          backgroundRepeat: 'no-repeat',
+          pointerEvents: 'none',
+          transform: 'translateZ(0)',
+        }}
+      />
       <Petals tone="blush-mix" amount={20} />
 
       <svg width="0" height="0" aria-hidden style={{ position: 'absolute' }}>

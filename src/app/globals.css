@@ -137,10 +137,19 @@ main {
   transform: none !important;
 }
 
-/* Keep the dove/flower backdrop from resampling like a zoom while scratching. */
+/* Keep the dove/flower page locked to one viewport — locale swaps must not grow it. */
 .card.page-snap.reveal-date-card {
+  height: var(--app-h, 100svh) !important;
+  min-height: var(--app-h, 100svh) !important;
+  max-height: var(--app-h, 100svh) !important;
+  overflow: hidden !important;
   background-attachment: scroll;
   backface-visibility: hidden;
+}
+
+.card.page-snap.reveal-date-card .reveal-date-backdrop {
+  transform: translateZ(0);
+  will-change: auto;
 }
 
 /* Urdu ayah page: taller type — grow so surah + scroll cue never collide */

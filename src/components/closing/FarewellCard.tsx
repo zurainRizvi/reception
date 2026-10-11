@@ -99,7 +99,6 @@ export default function FarewellCard({ locale }: { locale: Locale }) {
           >
             {isRtl ? (
               <>
-                <span>آپ کی آمد، </span>
                 <em
                   style={{
                     color: ACCENT,
@@ -108,8 +107,9 @@ export default function FarewellCard({ locale }: { locale: Locale }) {
                     fontFamily: "'Amiri', serif",
                   }}
                 >
-                  ہماری خوشی۔
+                  ہماری خوشی،{' '}
                 </em>
+                <span>آپ کی آمد۔</span>
               </>
             ) : (
               <>
