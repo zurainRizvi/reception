@@ -97,15 +97,20 @@ export default function OpeningStage({ locale, onBegin, onHeroReady }: Props) {
     video.setAttribute('webkit-playsinline', '');
     // Must run in the tap turn. Awaiting metadata, seeking, or pausing first
     // drops iOS user activation, so play() is rejected and the curtain stays shut.
-    const pending = video.play();
-    void pending?.catch(() => {
-      const retry = () => {
-        video.muted = true;
-        void video.play().catch(() => {});
-      };
-      video.addEventListener('canplay', retry, { once: true });
-      video.addEventListener('loadeddata', retry, { once: true });
-    });
+    const attempt = (retriesLeft: number) => {
+      video.muted = true;
+      video.defaultMuted = true;
+      video.volume = 0;
+      const pending = video.play();
+      void pending?.catch(() => {
+        if (retriesLeft <= 0) return;
+        const retry = () => attempt(retriesLeft - 1);
+        video.addEventListener('canplay', retry, { once: true });
+        video.addEventListener('loadeddata', retry, { once: true });
+        window.setTimeout(retry, 280);
+      });
+    };
+    attempt(5);
   };
 
   /** Runs on tap (same turn as user gesture) so iOS allows video + music. */

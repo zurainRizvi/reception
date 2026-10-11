@@ -28,12 +28,18 @@ const dayKey = {
 export default function ScratchReveal({ locale }: { locale: Locale }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const rectRef = useRef<DOMRect | null>(null);
   const [isRevealed, setIsRevealed] = useState(false);
   const [showHint, setShowHint] = useState(true);
   const isDrawing = useRef(false);
   const hasTriggered = useRef(false);
   const revealedRef = useRef(false);
   const lastPoint = useRef<{ x: number; y: number } | null>(null);
+  const lastSampleAt = useRef(0);
+  const samplePending = useRef(false);
+  const brushWidth = useRef(40);
+  const lockedScrollTop = useRef(0);
   const isRtl = locale === 'ur';
 
   const celebrate = useCallback(async () => {
@@ -72,23 +78,35 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
     }
   }, []);
 
+  const getCtx = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    if (!ctxRef.current) {
+      ctxRef.current = canvas.getContext('2d', { willReadFrequently: true });
+    }
+    return ctxRef.current;
+  }, []);
+
   const paintFoil = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas || revealedRef.current) return;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!canvas || revealedRef.current || isDrawing.current) return;
+    const ctx = getCtx();
     if (!ctx) return;
 
-    const width = canvas.offsetWidth;
-    const height = canvas.offsetHeight;
+    const width = Math.round(canvas.offsetWidth);
+    const height = Math.round(canvas.offsetHeight);
     if (width < 2 || height < 2) return;
-    canvas.width = width;
-    canvas.height = height;
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
 
     const grad = ctx.createLinearGradient(0, 0, width, height);
     grad.addColorStop(0, '#FFF5F6');
     grad.addColorStop(0.32, pink.soft);
     grad.addColorStop(0.68, pink.main);
     grad.addColorStop(1, pink.deep);
+    ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, width, height);
 
@@ -105,11 +123,13 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = isRtl ? 'bold 13px Amiri, serif' : '600 11px "DM Sans", sans-serif';
-    ctx.fillText(isRtl ? 'پردہ ہٹا کر تاریخ جانیے' : 'SCRATCH TO REVEAL', width / 2, height / 2 - 4);
+    ctx.fillText(isRtl ? 'پردہ ہٹا کر تواریخ جانیے' : 'SCRATCH TO REVEAL', width / 2, height / 2 - 4);
     ctx.font = isRtl ? '12px Amiri, serif' : '500 10px "DM Sans", sans-serif';
     ctx.fillStyle = 'rgba(61,52,41,0.72)';
     ctx.fillText(isRtl ? 'یا فوری طور پر ظاہر کریں' : 'or tap Instant Reveal below', width / 2, height / 2 + 16);
-  }, [isRtl]);
+
+    brushWidth.current = Math.max(40, Math.min(width, height) * 0.18);
+  }, [getCtx, isRtl]);
 
   useEffect(() => {
     paintFoil();
@@ -118,6 +138,8 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
     let lastW = canvas.offsetWidth;
     let lastH = canvas.offsetHeight;
     const observer = new ResizeObserver(() => {
+      // Never wipe/redraw foil mid-stroke — that reads as a zoom stutter.
+      if (isDrawing.current || revealedRef.current) return;
       const nextW = canvas.offsetWidth;
       const nextH = canvas.offsetHeight;
       if (Math.abs(nextW - lastW) < 2 && Math.abs(nextH - lastH) < 2) return;
@@ -129,70 +151,131 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
     return () => observer.disconnect();
   }, [paintFoil]);
 
-  const scratchAt = useCallback((clientX: number, clientY: number) => {
+  const sampleReveal = useCallback(() => {
+    if (revealedRef.current) return;
     const canvas = canvasRef.current;
-    if (!canvas || revealedRef.current) return;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return;
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width < 1 || rect.height < 1) return;
-    const x = ((clientX - rect.left) / rect.width) * canvas.width;
-    const y = ((clientY - rect.top) / rect.height) * canvas.height;
-
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = Math.max(40, Math.min(canvas.width, canvas.height) * 0.18);
-    const prev = lastPoint.current;
-    ctx.beginPath();
-    if (prev) {
-      ctx.moveTo(prev.x, prev.y);
-      ctx.lineTo(x, y);
-      ctx.stroke();
-    } else {
-      ctx.arc(x, y, ctx.lineWidth / 2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    lastPoint.current = { x, y };
-
+    const ctx = getCtx();
+    if (!canvas || !ctx || canvas.width < 2 || canvas.height < 2) return;
     try {
+      // Coarse grid — cheap enough for mobile without forcing GPU→CPU thrash every move.
+      const step = 8;
       const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
       let clear = 0;
-      const sampled = data.length / 16;
-      for (let i = 3; i < data.length; i += 16) {
-        if (data[i] < 128) clear++;
+      let total = 0;
+      for (let y = 0; y < canvas.height; y += step) {
+        for (let x = 0; x < canvas.width; x += step) {
+          total++;
+          if (data[(y * canvas.width + x) * 4 + 3] < 128) clear++;
+        }
       }
-      if (sampled > 0 && (clear / sampled) * 100 > 26) celebrate();
+      if (total > 0 && (clear / total) * 100 > 26) celebrate();
     } catch {
       // ignore
     }
-  }, [celebrate]);
+  }, [celebrate, getCtx]);
+
+  const scheduleSample = useCallback(
+    (force = false) => {
+      if (revealedRef.current) return;
+      const now = performance.now();
+      if (!force && now - lastSampleAt.current < 160) return;
+      if (samplePending.current) return;
+      samplePending.current = true;
+      requestAnimationFrame(() => {
+        samplePending.current = false;
+        lastSampleAt.current = performance.now();
+        sampleReveal();
+      });
+    },
+    [sampleReveal],
+  );
+
+  const scratchAt = useCallback(
+    (clientX: number, clientY: number) => {
+      const canvas = canvasRef.current;
+      const ctx = getCtx();
+      if (!canvas || !ctx || revealedRef.current) return;
+
+      let rect = rectRef.current;
+      if (!rect || rect.width < 1 || rect.height < 1) {
+        rect = canvas.getBoundingClientRect();
+        rectRef.current = rect;
+      }
+      if (rect.width < 1 || rect.height < 1) return;
+
+      const x = ((clientX - rect.left) / rect.width) * canvas.width;
+      const y = ((clientY - rect.top) / rect.height) * canvas.height;
+
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = brushWidth.current;
+      const prev = lastPoint.current;
+      ctx.beginPath();
+      if (prev) {
+        ctx.moveTo(prev.x, prev.y);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      } else {
+        ctx.arc(x, y, brushWidth.current / 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      lastPoint.current = { x, y };
+      scheduleSample(false);
+    },
+    [getCtx, scheduleSample],
+  );
 
   useEffect(() => {
     const surface = surfaceRef.current;
     if (!surface || isRevealed) return;
 
     let pausedHere = false;
+    let lockedOverflow = '';
     const pauseScroll = (paused: boolean) => {
       const main = document.querySelector('main');
       if (!main) return;
       if (paused) {
+        lockedScrollTop.current = main.scrollTop;
         pausedHere = !main.classList.contains('snap-paused');
         main.classList.add('snap-paused');
+        // Freeze the scroller so snap-type changes can't jump/zoom the page.
+        lockedOverflow = main.style.overflowY;
+        main.style.overflowY = 'hidden';
+        main.scrollTop = lockedScrollTop.current;
         return;
       }
+      main.style.overflowY = lockedOverflow;
+      main.scrollTop = lockedScrollTop.current;
       if (pausedHere) main.classList.remove('snap-paused');
       pausedHere = false;
     };
 
-    const onTouchStart = (event: TouchEvent) => {
-      if (event.cancelable) event.preventDefault();
+    const beginStroke = (clientX: number, clientY: number) => {
+      const canvas = canvasRef.current;
+      if (!canvas || revealedRef.current) return;
       isDrawing.current = true;
       lastPoint.current = null;
+      rectRef.current = canvas.getBoundingClientRect();
+      brushWidth.current = Math.max(40, Math.min(canvas.width, canvas.height) * 0.18);
       setShowHint(false);
       pauseScroll(true);
+      scratchAt(clientX, clientY);
+    };
+
+    const endStroke = () => {
+      if (!isDrawing.current) return;
+      isDrawing.current = false;
+      lastPoint.current = null;
+      rectRef.current = null;
+      scheduleSample(true);
+      pauseScroll(false);
+    };
+
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.cancelable) event.preventDefault();
       const touch = event.changedTouches[0];
-      if (touch) scratchAt(touch.clientX, touch.clientY);
+      if (touch) beginStroke(touch.clientX, touch.clientY);
     };
     const onTouchMove = (event: TouchEvent) => {
       if (!isDrawing.current) return;
@@ -200,19 +283,17 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
       const touch = event.changedTouches[0];
       if (touch) scratchAt(touch.clientX, touch.clientY);
     };
-    const onTouchEnd = () => {
-      isDrawing.current = false;
-      lastPoint.current = null;
-      pauseScroll(false);
-    };
+    const onTouchEnd = () => endStroke();
 
     const onPointerDown = (event: PointerEvent) => {
       if (event.pointerType === 'touch') return;
       event.preventDefault();
-      isDrawing.current = true;
-      lastPoint.current = null;
-      setShowHint(false);
-      scratchAt(event.clientX, event.clientY);
+      try {
+        surface.setPointerCapture(event.pointerId);
+      } catch {
+        // ignore
+      }
+      beginStroke(event.clientX, event.clientY);
     };
     const onPointerMove = (event: PointerEvent) => {
       if (event.pointerType === 'touch' || !isDrawing.current) return;
@@ -220,8 +301,7 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
     };
     const onPointerUp = (event: PointerEvent) => {
       if (event.pointerType === 'touch') return;
-      isDrawing.current = false;
-      lastPoint.current = null;
+      endStroke();
     };
 
     surface.addEventListener('touchstart', onTouchStart, { passive: false });
@@ -244,7 +324,7 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
       surface.removeEventListener('pointerup', onPointerUp);
       surface.removeEventListener('pointercancel', onPointerUp);
     };
-  }, [isRevealed, scratchAt]);
+  }, [isRevealed, scheduleSample, scratchAt]);
 
   const event = wedding.events[0];
   const eventDate = new Date(`${event.date}T12:00:00`);

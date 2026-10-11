@@ -6,18 +6,75 @@ import { theme } from '@/config/theme';
 import type { Locale } from '@/config/translations';
 import RsvpCard from '@/components/rsvp/RsvpCard';
 
+/** Guests must reach RSVP even if the closing clip stalls on a slow network. */
+const RSVP_FAILSAFE_MS = 8500;
+
 export default function ClosingStage({ locale }: { locale: Locale }) {
   const sectionRef = useRef<HTMLElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const onPage = useRef(false);
+  const failSafeRef = useRef<number | null>(null);
   const [showRsvp, setShowRsvp] = useState(false);
 
   const videoSrc = `${theme.videos.closing}?v=${theme.videos.version}`;
   const posterSrc = `${theme.videos.closingPoster}?v=${theme.videos.version}`;
 
+  const clearFailSafe = () => {
+    if (failSafeRef.current != null) {
+      window.clearTimeout(failSafeRef.current);
+      failSafeRef.current = null;
+    }
+  };
+
+  const openRsvp = () => {
+    clearFailSafe();
+    setShowRsvp(true);
+  };
+
+  const armFailSafe = () => {
+    clearFailSafe();
+    failSafeRef.current = window.setTimeout(() => {
+      if (onPage.current) openRsvp();
+    }, RSVP_FAILSAFE_MS);
+  };
+
+  useEffect(() => () => clearFailSafe(), []);
+
   useEffect(() => {
     const el = sectionRef.current;
     if (!el) return;
+
+    const prepareVideo = (video: HTMLVideoElement) => {
+      video.muted = true;
+      video.defaultMuted = true;
+      video.playsInline = true;
+      video.setAttribute('muted', '');
+      video.setAttribute('playsinline', '');
+      video.setAttribute('webkit-playsinline', '');
+      video.preload = 'auto';
+      video.playbackRate = 1.2;
+    };
+
+    const attemptPlay = (video: HTMLVideoElement, retriesLeft: number) => {
+      if (!onPage.current) return;
+      prepareVideo(video);
+      const pending = video.play();
+      void pending
+        ?.then(() => {
+          video.playbackRate = 1.2;
+        })
+        .catch(() => {
+          if (!onPage.current) return;
+          if (retriesLeft <= 0) {
+            openRsvp();
+            return;
+          }
+          const retry = () => attemptPlay(video, retriesLeft - 1);
+          video.addEventListener('canplay', retry, { once: true });
+          video.addEventListener('loadeddata', retry, { once: true });
+          window.setTimeout(retry, 350);
+        });
+    };
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -25,39 +82,42 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
         const video = videoRef.current;
         if (!entry || !video) return;
 
-        if (entry.intersectionRatio >= 0.9) {
+        // 0.9 was too strict on short mobile viewports (URL bar / safe area).
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.45) {
           if (onPage.current) return;
           onPage.current = true;
           setShowRsvp(false);
-          video.muted = true;
-          video.defaultMuted = true;
-          video.playsInline = true;
-          video.setAttribute('muted', '');
-          video.setAttribute('playsinline', '');
-          video.setAttribute('webkit-playsinline', '');
-          video.playbackRate = 1.2; // ~0.2x faster ending video
-          if (video.readyState >= 1) video.currentTime = 0;
-          const pending = video.play();
-          void pending?.then(() => {
-            video.playbackRate = 1.2;
-          }).catch(() => {
-            if (onPage.current) setShowRsvp(true);
-          });
+          prepareVideo(video);
+          try {
+            if (video.readyState >= 1) video.currentTime = 0;
+          } catch {
+            // ignore seek errors
+          }
+          armFailSafe();
+          attemptPlay(video, 5);
           return;
         }
 
-        if (entry.intersectionRatio < 0.5) {
+        if (entry.intersectionRatio < 0.3) {
           onPage.current = false;
+          clearFailSafe();
           video.pause();
-          if (video.readyState >= 1) video.currentTime = 0;
+          try {
+            if (video.readyState >= 1) video.currentTime = 0;
+          } catch {
+            // ignore
+          }
           setShowRsvp(false);
         }
       },
-      { threshold: [0, 0.5, 0.9] }
+      { threshold: [0, 0.3, 0.45, 0.6, 0.9] }
     );
 
     observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      clearFailSafe();
+    };
   }, []);
 
   return (
@@ -80,7 +140,8 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
         preload="metadata"
         controls={false}
         disablePictureInPicture
-        onEnded={() => setShowRsvp(true)}
+        onEnded={openRsvp}
+        onError={openRsvp}
         style={{
           position: 'absolute',
           inset: 0,

@@ -152,13 +152,14 @@ export default function Invitation() {
     };
   }, [contentReady, locale]);
 
-  // Warm event intro videos after opening so scroll-to-event rarely hits a cold buffer.
-  // Keep the elements alive (don't tear down src) — that preserves the HTTP cache warm.
+  // Warm event + closing videos after the curtain has a head start so guests
+  // rarely hit a cold buffer — without starving the opening clip's bandwidth.
   useEffect(() => {
     if (!contentReady) return;
     const ids = ['waleema'] as const;
+    const paths = [...ids.map((id) => theme.events[id].video), theme.videos.closing];
     const warmers: HTMLVideoElement[] = [];
-    const timers = ids.map((id, index) =>
+    const timers = paths.map((path, index) =>
       window.setTimeout(() => {
         const video = document.createElement('video');
         video.muted = true;
@@ -166,22 +167,15 @@ export default function Invitation() {
         video.preload = 'auto';
         video.setAttribute('muted', '');
         video.setAttribute('playsinline', '');
-        video.src = `${theme.events[id].video}?v=${theme.videos.version}`;
-        video.load();
+        video.src = `${path}?v=${theme.videos.version}`;
         warmers.push(video);
-      }, index * 900),
+      }, 1600 + index * 1800),
     );
 
     return () => {
       timers.forEach((id) => window.clearTimeout(id));
-      warmers.forEach((video) => {
-        video.removeAttribute('src');
-        try {
-          video.load();
-        } catch {
-          // ignore
-        }
-      });
+      // Leave HTTP cache intact — do not reset src/load on teardown.
+      warmers.length = 0;
     };
   }, [contentReady]);
 
@@ -270,7 +264,12 @@ export default function Invitation() {
 
       <OpeningStage
         locale={locale}
-        onBegin={startMusic}
+        onBegin={() => {
+          startMusic();
+          // Mount below-fold pages during the curtain so videos/RSVP can buffer
+          // before guests swipe — without delaying the tap-gesture play().
+          window.setTimeout(() => setContentReady(true), 160);
+        }}
         onHeroReady={() => setContentReady(true)}
       />
 

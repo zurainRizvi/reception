@@ -485,25 +485,39 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
         video.muted = true;
         video.defaultMuted = true;
         video.playsInline = true;
+        video.setAttribute('muted', '');
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
         const pending = video.play();
         void pending?.catch(() => {
           if (retriesLeft <= 0) {
-            // Only give up after retries — early NotAllowed/Abort must not kill intro.
+            // Show copy so the page isn't stuck, but allow another try when
+            // the guest is still on (or returns to) this card.
             revealText();
-            finishVideo(false);
             setShowScrollCue(true);
+            startedRef.current = false;
+            window.setTimeout(() => {
+              if (finishedRef.current) return;
+              if (playedEventIntros.has(e.id)) {
+                finishVideo(false);
+                return;
+              }
+              // Re-enter the same play pipeline without requiring a hard refresh.
+              startedRef.current = false;
+              kickTryPlay();
+            }, 900);
             return;
           }
           const retry = () => attemptPlay(retriesLeft - 1);
           video.addEventListener('canplay', retry, { once: true });
           video.addEventListener('loadeddata', retry, { once: true });
-          window.setTimeout(retry, 400);
+          window.setTimeout(retry, 450);
         });
       };
-      attemptPlay(4);
+      attemptPlay(6);
     };
 
-    const tryPlay = () => {
+    const kickTryPlay = () => {
       if (startedRef.current || finishedRef.current || (playedEventIntros.has(e.id) && showText)) return;
       startedRef.current = true;
       video.muted = true;
@@ -544,14 +558,11 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       if (video.readyState >= 2) {
         kickoff();
       } else {
+        // Do NOT call video.load() here — it aborts an in-flight buffer from warmers
+        // and is a common reason guests need a hard refresh before autoplay works.
         video.addEventListener('loadedmetadata', kickoff, { once: true });
         video.addEventListener('canplay', kickoff, { once: true });
-        try {
-          video.load();
-        } catch {
-          // ignore
-        }
-        window.setTimeout(kickoff, 1800);
+        window.setTimeout(kickoff, 2200);
       }
     };
 
@@ -564,10 +575,17 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       (entries) => {
         const entry = entries[0];
         if (!entry) return;
-        // Start once a majority of the card is visible (0.85 was too strict on short viewports).
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.55) tryPlay();
+        // Start once a good portion of the card is visible.
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.4) {
+          kickTryPlay();
+          return;
+        }
+        // If play never got going, allow a fresh attempt when the guest returns.
+        if (!entry.isIntersecting && !finishedRef.current && video.paused && video.currentTime <= trimStart + 0.15) {
+          startedRef.current = false;
+        }
       },
-      { threshold: [0, 0.35, 0.55, 0.75] }
+      { threshold: [0, 0.25, 0.4, 0.55, 0.75] }
     );
 
     observer.observe(root);
@@ -652,7 +670,7 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
               poster={posterSrc}
               playsInline
               muted
-              preload="auto"
+              preload="metadata"
               controls={false}
               disablePictureInPicture
               style={{

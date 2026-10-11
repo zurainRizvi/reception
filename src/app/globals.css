@@ -137,6 +137,12 @@ main {
   transform: none !important;
 }
 
+/* Keep the dove/flower backdrop from resampling like a zoom while scratching. */
+.card.page-snap.reveal-date-card {
+  background-attachment: scroll;
+  backface-visibility: hidden;
+}
+
 /* Urdu ayah page: taller type — grow so surah + scroll cue never collide */
 main[data-locale='ur'] .card.page-snap.blessing {
   height: auto;
@@ -879,9 +885,14 @@ label,
 
 .scratch-surface {
   touch-action: none;
+  -ms-touch-action: none;
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+  overscroll-behavior: none;
+  /* Keep the foil tablet from reflowing/compositing like a zoom during scratches. */
+  contain: layout paint;
+  transform: translateZ(0);
 }
 
 .scratch-card-visual,
