@@ -332,9 +332,6 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
   const [zoomSecs, setZoomSecs] = useState(0);
   // Scroll cue waits ~5s of video play; revisits show it immediately.
   const [showScrollCue, setShowScrollCue] = useState(() => playedEventIntros.has(e.id));
-  // Hide the <video> under the poster until the first decoded frame at trimStart is ready —
-  // avoids the play→seek hitch that made intros stutter on start.
-  const [mediaVisible, setMediaVisible] = useState(() => playedEventIntros.has(e.id));
   // Always keep the video mounted so the last frame can stay as the page background.
   const keepVideo = true;
 
@@ -401,7 +398,6 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       textTimerRef.current = null;
     }
     revealText();
-    setMediaVisible(true);
     setVideoDone(true);
     setZoomActive(false);
     const video = videoRef.current;
@@ -462,12 +458,8 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     };
 
     let zoomStarted = false;
-    let failSafeArmed = false;
     let timersArmed = false;
     let inView = false;
-    let lastProgressAt = performance.now();
-    let lastProgressTime = 0;
-    let watchdogId: number | null = null;
 
     const startZoom = () => {
       if (!hasZoom || zoomStarted) return;
@@ -490,136 +482,84 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
     const armIntroTimers = () => {
       if (timersArmed || finishedRef.current) return;
       timersArmed = true;
-      if (textTimerRef.current != null) window.clearTimeout(textTimerRef.current);
-      if (scrollCueTimerRef.current != null) window.clearTimeout(scrollCueTimerRef.current);
       textTimerRef.current = window.setTimeout(() => revealText(true), Math.round(TEXT_AT * 1000));
       scrollCueTimerRef.current = window.setTimeout(() => setShowScrollCue(true), 5000);
+      const playWindowMs =
+        Number.isFinite(video.duration) && video.duration > 0
+          ? Math.round((video.duration + 1.5) * 1000)
+          : 10000;
+      failSafeRef.current = window.setTimeout(() => finishVideo(false), playWindowMs);
       startZoom();
     };
 
-    const armFailSafe = () => {
-      if (failSafeArmed || finishedRef.current) return;
-      failSafeArmed = true;
-      const playWindowMs =
-        Number.isFinite(video.duration) && video.duration > 0
-          ? Math.round((video.duration + 1.25) * 1000)
-          : 10000;
-      failSafeRef.current = window.setTimeout(() => finishVideo(false), playWindowMs);
-    };
-
-    const showMedia = () => {
+    /** Simple muted autoplay — no warm-pause, no seeks, no opacity gate. */
+    const tryPlay = (retriesLeft = 10) => {
       if (finishedRef.current || !inView) return;
-      setMediaVisible(true);
-      armIntroTimers();
-    };
-
-    /**
-     * Lead-ins are baked into the MP4s (trimStart=0). Play from frame 0 with no seeks —
-     * same path Mehndi uses for a smooth instant start.
-     */
-    const ensurePlaying = (retriesLeft = 6) => {
-      if (finishedRef.current) return;
       prepare();
-      video.preload = 'auto';
       const pending = video.play();
       void pending
         ?.then(() => {
-          if (inView) showMedia();
+          armIntroTimers();
+          startedRef.current = true;
         })
         .catch(() => {
           if (retriesLeft <= 0) {
-            if (inView) {
-              revealText(false);
-              setShowScrollCue(true);
-              setMediaVisible(true);
-            }
+            revealText(false);
+            setShowScrollCue(true);
             return;
           }
-          const retry = () => ensurePlaying(retriesLeft - 1);
+          const retry = () => tryPlay(retriesLeft - 1);
           video.addEventListener('canplay', retry, { once: true });
           video.addEventListener('loadeddata', retry, { once: true });
-          window.setTimeout(retry, 280);
+          window.setTimeout(retry, 300);
         });
     };
 
     const onTimeUpdate = () => {
-      if (Math.abs(video.currentTime - lastProgressTime) > 0.04) {
-        lastProgressTime = video.currentTime;
-        lastProgressAt = performance.now();
-      }
-
-      // Warm nearby: decode a few frames then hold — do NOT seek back (seek = stutter on enter).
-      if (!inView && !finishedRef.current && video.currentTime >= 0.12) {
-        video.pause();
-        return;
-      }
-
-      if (!inView) return;
-      showMedia();
-      if (video.currentTime >= 0.35) playedEventIntros.add(e.id);
+      if (!inView || finishedRef.current) return;
+      if (video.currentTime >= 0.3) playedEventIntros.add(e.id);
       if (video.currentTime >= TEXT_AT) revealText(true);
     };
 
     const onEnded = () => {
-      if (!inView) {
-        try {
-          video.currentTime = 0;
-        } catch {
-          // ignore
-        }
-        video.pause();
-        return;
-      }
+      if (!inView) return;
       finishVideo(true);
+    };
+
+    const onPlaying = () => {
+      if (!inView) return;
+      armIntroTimers();
+      startedRef.current = true;
     };
 
     const enterView = () => {
       if (finishedRef.current) return;
       if (playedEventIntros.has(e.id) && videoDone) return;
-      const already = inView;
       inView = true;
-      startedRef.current = true;
-      armFailSafe();
-      // If warm already decoded the first frames, show immediately — no poster wait.
-      if (video.readyState >= 2) setMediaVisible(true);
-      armIntroTimers();
-      ensurePlaying(8);
-      if (!already) showMedia();
+      tryPlay(10);
     };
 
     const leaveView = () => {
       inView = false;
-      if (finishedRef.current) return;
-      if (video.paused || video.currentTime < 0.35) startedRef.current = false;
+      // Keep buffering if we already started; only unlock retry if still cold.
+      if (!startedRef.current) return;
+      if (video.paused && video.currentTime < 0.25) startedRef.current = false;
     };
 
+    prepare();
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('ended', onEnded);
-    const onPlaying = () => {
-      if (inView) showMedia();
-    };
     video.addEventListener('playing', onPlaying);
-    const onLoadedData = () => {
-      // First decoded frame ready during warm — instant paint on snap-in.
-      if (inView) showMedia();
-    };
-    video.addEventListener('loadeddata', onLoadedData);
-    const onError = () => {
-      startedRef.current = false;
-      if (inView) window.setTimeout(() => ensurePlaying(6), 350);
-    };
-    video.addEventListener('error', onError);
 
-    // Warm far ahead (Mehndi gets this naturally by being first).
+    // Prefetch bytes nearby — preload only, never play/pause offscreen (that caused stutter).
     const warmObserver = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (!entry?.isIntersecting || finishedRef.current || inView) return;
+        if (!entry?.isIntersecting || finishedRef.current) return;
         prepare();
         video.preload = 'auto';
-        ensurePlaying(4);
       },
-      { root: null, rootMargin: '180% 0px', threshold: 0 }
+      { root: null, rootMargin: '200% 0px', threshold: 0 }
     );
     warmObserver.observe(root);
 
@@ -627,47 +567,35 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       (entries) => {
         const entry = entries[0];
         if (!entry) return;
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.1) {
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.2) {
           enterView();
           return;
         }
-        if (!entry.isIntersecting || entry.intersectionRatio < 0.06) leaveView();
+        if (!entry.isIntersecting || entry.intersectionRatio < 0.1) leaveView();
       },
-      { root: null, rootMargin: '18% 0px', threshold: [0, 0.06, 0.1, 0.25, 0.4, 0.6, 0.85] }
+      { root: null, rootMargin: '8% 0px', threshold: [0, 0.1, 0.2, 0.35, 0.5, 0.75] }
     );
     observer.observe(root);
-
-    watchdogId = window.setInterval(() => {
-      if (!inView || finishedRef.current || video.ended) return;
-      const stalled = performance.now() - lastProgressAt > 600;
-      if (video.paused || stalled) ensurePlaying(4);
-      else showMedia();
-    }, 400);
 
     const pageAligned = () => {
       const rect = root.getBoundingClientRect();
       const viewH = window.innerHeight || 1;
-      if (rect.top < viewH * 0.35 && rect.bottom > viewH * 0.45) enterView();
+      if (rect.top < viewH * 0.4 && rect.bottom > viewH * 0.5) enterView();
     };
     pageAligned();
     window.requestAnimationFrame(pageAligned);
-    window.setTimeout(pageAligned, 60);
-    window.setTimeout(pageAligned, 200);
-    window.setTimeout(pageAligned, 500);
+    window.setTimeout(pageAligned, 100);
+    window.setTimeout(pageAligned, 400);
     const main = document.querySelector('main');
-    const onScroll = () => pageAligned();
-    main?.addEventListener('scroll', onScroll, { passive: true });
+    main?.addEventListener('scroll', pageAligned, { passive: true });
 
     return () => {
       warmObserver.disconnect();
       observer.disconnect();
-      main?.removeEventListener('scroll', onScroll);
-      if (watchdogId != null) window.clearInterval(watchdogId);
+      main?.removeEventListener('scroll', pageAligned);
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('ended', onEnded);
       video.removeEventListener('playing', onPlaying);
-      video.removeEventListener('loadeddata', onLoadedData);
-      video.removeEventListener('error', onError);
       clearTimers();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once per event card
@@ -744,8 +672,7 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
               poster={posterSrc}
               playsInline
               muted
-              // metadata until the warm observer promotes to auto — keeps Baraat/Waleema from starving.
-              preload="metadata"
+              preload="auto"
               controls={false}
               disablePictureInPicture
               style={{
@@ -756,9 +683,6 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
                 objectFit: 'cover',
                 objectPosition: 'center center',
                 pointerEvents: 'none',
-                opacity: mediaVisible ? 1 : 0,
-                // No fade — hard cut from poster to a ready frame (Mehndi-smooth).
-                transition: 'none',
               }}
             />
           </div>

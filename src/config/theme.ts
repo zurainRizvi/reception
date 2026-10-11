@@ -147,7 +147,7 @@ export const theme = {
     closing: '/videos/closing.mp4',
     closingPoster: '/videos/closing-poster.jpg',
     // Bump when remuxing/replacing public videos so immutable Cache-Control clients refetch.
-    version: '20261011c',
+    version: '20261011d',
   },
 } as const;
 
