@@ -332,6 +332,9 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
   const [zoomSecs, setZoomSecs] = useState(0);
   // Scroll cue waits ~5s of video play; revisits show it immediately.
   const [showScrollCue, setShowScrollCue] = useState(() => playedEventIntros.has(e.id));
+  // Hide the <video> under the poster until the first decoded frame at trimStart is ready —
+  // avoids the play→seek hitch that made intros stutter on start.
+  const [mediaVisible, setMediaVisible] = useState(() => playedEventIntros.has(e.id));
   // Always keep the video mounted so the last frame can stay as the page background.
   const keepVideo = true;
 
@@ -398,6 +401,7 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       textTimerRef.current = null;
     }
     revealText();
+    setMediaVisible(true);
     setVideoDone(true);
     setZoomActive(false);
     const video = videoRef.current;
@@ -457,28 +461,7 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       video.setAttribute('webkit-playsinline', '');
     };
 
-    let trimApplied = trimStart <= 0;
-
-    const applyTrimStart = () => {
-      if (trimStart <= 0 || trimApplied || finishedRef.current) return;
-      // Never seek before the browser can decode — that froze Baraat/Waleema.
-      if (video.readyState < 1) return;
-      if (video.currentTime >= trimStart - 0.04) {
-        trimApplied = true;
-        return;
-      }
-      try {
-        video.currentTime = trimStart;
-        trimApplied = true;
-      } catch {
-        // Keep playing from 0; retry on the next timeupdate.
-      }
-    };
-
     const onTimeUpdate = () => {
-      if (!trimApplied && trimStart > 0 && !video.paused) {
-        applyTrimStart();
-      }
       // Lock "played" only after real progress past the trim — not on a brief play() blip.
       if (video.currentTime - trimStart >= 0.35) {
         playedEventIntros.add(e.id);
@@ -505,6 +488,10 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       });
     };
 
+    const revealMedia = () => {
+      setMediaVisible(true);
+    };
+
     const beginPlayback = () => {
       clearTimers();
       textTimerRef.current = window.setTimeout(() => revealText(true), Math.round(TEXT_AT * 1000));
@@ -523,11 +510,8 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
         const pending = video.play();
         void pending
           ?.then(() => {
-            // Play first, then snap to trimStart (preserves theme trim without blocking autoplay).
-            applyTrimStart();
-            if (video.paused && !finishedRef.current) {
-              void video.play()?.catch(() => {});
-            }
+            // Already parked on trimStart before play — no mid-play seek (that caused the stutter).
+            revealMedia();
           })
           .catch(() => {
             if (retriesLeft <= 0) {
@@ -535,6 +519,7 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
               // that was why Baraat/Waleema stayed frozen after one cold failure.
               revealText(false);
               setShowScrollCue(true);
+              revealMedia();
               startedRef.current = false;
               window.setTimeout(() => {
                 if (!finishedRef.current) kickTryPlay();
@@ -550,66 +535,98 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       attemptPlay(8);
     };
 
+    /** Seek to trimStart while still under the poster, then play — smooth from frame one. */
+    const parkAtTrimThenPlay = () => {
+      if (finishedRef.current) return;
+
+      if (trimStart <= 0) {
+        beginPlayback();
+        return;
+      }
+
+      if (Math.abs(video.currentTime - trimStart) <= 0.05) {
+        beginPlayback();
+        return;
+      }
+
+      let settled = false;
+      const settle = () => {
+        if (settled || finishedRef.current) return;
+        settled = true;
+        video.removeEventListener('seeked', settle);
+        beginPlayback();
+      };
+      video.addEventListener('seeked', settle);
+      try {
+        video.currentTime = trimStart;
+      } catch {
+        settle();
+        return;
+      }
+      // Faststart files usually seek quickly; don't wait forever.
+      window.setTimeout(settle, 420);
+    };
+
     const kickTryPlay = () => {
       if (startedRef.current || finishedRef.current) return;
       if (playedEventIntros.has(e.id) && videoDone) return;
       startedRef.current = true;
       prepare();
       video.preload = 'auto';
+      setMediaVisible(false);
 
       let kickedOff = false;
       const kickoff = () => {
         if (kickedOff || finishedRef.current) return;
         kickedOff = true;
-        // Always start playback first — seeking before play() stalls cold MP4s.
-        beginPlayback();
+        parkAtTrimThenPlay();
       };
 
-      if (video.readyState >= 1) {
+      // Wait for a bufferable frame before seeking — avoids cold-seek stalls.
+      if (video.readyState >= 2) {
         kickoff();
       } else {
-        video.addEventListener('loadedmetadata', kickoff, { once: true });
+        video.addEventListener('loadeddata', kickoff, { once: true });
         video.addEventListener('canplay', kickoff, { once: true });
-        try {
-          video.load();
-        } catch {
-          // ignore
-        }
-        window.setTimeout(kickoff, 1600);
+        window.setTimeout(kickoff, 1800);
       }
     };
 
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('ended', onEnded);
-    const onSeeked = () => {
-      if (finishedRef.current) return;
-      if (video.paused) void video.play()?.catch(() => {});
+    const onPlaying = () => {
+      revealMedia();
     };
-    video.addEventListener('seeked', onSeeked);
+    video.addEventListener('playing', onPlaying);
     const onError = () => {
       startedRef.current = false;
-      trimApplied = trimStart <= 0;
+      setMediaVisible(true);
       window.setTimeout(() => {
         if (!finishedRef.current) kickTryPlay();
       }, 500);
     };
     video.addEventListener('error', onError);
 
-    // Warm buffer when nearby; start playback once mostly on screen.
+    // Warm buffer + pre-park at trimStart while the guest is still a screen away.
     const warmObserver = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
         if (!entry?.isIntersecting || startedRef.current || finishedRef.current) return;
         prepare();
         video.preload = 'auto';
-        // Don't call load() once bytes are flowing — it aborts the buffer.
-        if (video.readyState === 0) {
+        const prepark = () => {
+          if (startedRef.current || finishedRef.current || trimStart <= 0) return;
+          if (video.readyState < 1) return;
+          if (Math.abs(video.currentTime - trimStart) <= 0.05) return;
           try {
-            video.load();
+            video.currentTime = trimStart;
           } catch {
             // ignore
           }
-        }
+        };
+        video.addEventListener('loadeddata', prepark, { once: true });
+        video.addEventListener('canplay', prepark, { once: true });
+        if (video.readyState >= 1) prepark();
       },
       { root: null, rootMargin: '120% 0px', threshold: 0 }
     );
@@ -646,7 +663,7 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
       observer.disconnect();
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('ended', onEnded);
-      video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('playing', onPlaying);
       video.removeEventListener('error', onError);
       clearTimers();
     };
@@ -736,6 +753,8 @@ export function EventCard({ e, i, locale }: { e: WeddingEvent; i: number; locale
                 objectFit: 'cover',
                 objectPosition: 'center center',
                 pointerEvents: 'none',
+                opacity: mediaVisible ? 1 : 0,
+                transition: 'opacity 120ms linear',
               }}
             />
           </div>

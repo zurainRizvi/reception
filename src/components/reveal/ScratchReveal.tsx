@@ -360,10 +360,7 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
     };
   }, [isRevealed, scheduleSample, scratchAt]);
 
-  const event = wedding.events[0];
-  const eventDate = new Date(`${event.date}T12:00:00`);
-  const dayLabel = t(locale, dayKey[event.day as keyof typeof dayKey]);
-  const dayNum = eventDate.getDate();
+  const accentFor = (id: (typeof wedding.events)[number]['id']) => theme.events[id].accent;
 
   return (
     <Card
@@ -427,7 +424,7 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
           justifyContent: 'flex-start',
           padding: isRtl
             ? 'clamp(56px, 9vh, 88px) 18px max(40px, calc(env(safe-area-inset-bottom, 0px) + 32px))'
-            : 'clamp(68px, 11vh, 104px) 24px max(18px, calc(env(safe-area-inset-bottom, 0px) + 12px))',
+            : 'clamp(68px, 11vh, 104px) 24px max(40px, calc(env(safe-area-inset-bottom, 0px) + 32px))',
           transform: 'none',
         }}
       >
@@ -439,7 +436,7 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
             marginBottom: 8,
           }}
         >
-          {isRtl ? 'محبت و مسرت کا خاص دن' : 'SAVE THE AUSPICIOUS DATE'}
+          {isRtl ? 'محبت و مسرت کے خاص دن' : 'SAVE THE AUSPICIOUS DATES'}
         </p>
         <h2
           style={{
@@ -453,16 +450,16 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
         >
           {isRtl ? (
             <>
-              تاریخ کی نقاب کشائی
+              تواریخ کی نقاب کشائی
               <em style={{ color: pink.main, display: 'block', fontStyle: 'normal', fontSize: '0.78em', marginTop: 6 }}>
-                ولیمہ کا دن
+                تین تقریبات، ایک جشن
               </em>
             </>
           ) : (
             <>
               Scratch to Reveal
               <em style={{ color: pink.main, display: 'block', fontStyle: 'italic', fontSize: '0.76em', marginTop: 4 }}>
-                Our Waleema Date
+                Our Celebration Dates
               </em>
             </>
           )}
@@ -472,7 +469,7 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
         <div
           aria-hidden
           style={{
-            width: 'min(132px, 34vw)',
+            width: 'min(170px, 44vw)',
             aspectRatio: '340 / 200',
             margin: '0 auto 2px',
             flexShrink: 0,
@@ -502,12 +499,17 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
             className="scratch-surface"
             style={{
               position: 'relative',
-              width: 'min(196px, 56vw)',
-              height: 'min(168px, 34vh)',
+              width: 'min(268px, 78vw)',
+              // Same footprint in EN/UR so locale swaps don't resize the foil stage.
+              height: 'min(280px, 54vh)',
               margin: '0 auto 10px',
               flexShrink: 0,
               zIndex: 3,
               touchAction: 'none',
+              overscrollBehavior: 'none',
+              contain: 'layout paint',
+              WebkitUserSelect: 'none',
+              userSelect: 'none',
             }}
           >
             <div
@@ -532,55 +534,155 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  padding: isRtl ? '28px 16px 20px' : '30px 16px 18px',
+                  padding: isRtl ? '36px 22px 28px' : '52px 28px 34px',
+                  boxSizing: 'border-box',
                   pointerEvents: 'none',
                 }}
               >
                 <p
                   style={{
                     margin: 0,
-                    fontSize: isRtl ? 13 : 11,
-                    letterSpacing: isRtl ? '0.04em' : '0.18em',
-                    color: theme.events.waleema.accent,
+                    fontSize: isRtl ? 12 : 10,
+                    letterSpacing: isRtl ? '0.06em' : '0.22em',
+                    color: pink.main,
                     fontWeight: 700,
                     fontFamily: isRtl ? "'Amiri', serif" : undefined,
-                    textTransform: isRtl ? 'none' : 'uppercase',
+                    flexShrink: 0,
                   }}
                 >
-                  {isRtl ? 'ولیمہ' : 'Waleema'}
+                  {isRtl ? 'جنوری ۲۰۲۷' : 'JANUARY 2027'}
                 </p>
-                <p
+                <div
+                  aria-hidden
                   style={{
-                    margin: '2px 0 0',
-                    fontFamily: "'Cormorant Garamond', serif",
-                    fontSize: 40,
-                    lineHeight: 1,
-                    fontWeight: 600,
-                    color: theme.colors.ink,
+                    width: 48,
+                    height: 1,
+                    margin: isRtl ? '6px 0 8px' : '8px 0 10px',
+                    background: `linear-gradient(90deg, transparent, ${pink.main}, transparent)`,
+                    flexShrink: 0,
+                  }}
+                />
+
+                <div
+                  style={{
+                    width: '100%',
+                    maxWidth: 210,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: isRtl ? 6 : 7,
+                    flex: '0 0 auto',
+                    justifyContent: 'center',
                   }}
                 >
-                  {dayNum}
-                </p>
-                <p
+                  {wedding.events.map((event, index) => {
+                    const date = new Date(`${event.date}T12:00:00`);
+                    const dayLabel = t(locale, dayKey[event.day as keyof typeof dayKey]);
+                    const name = t(locale, event.id);
+                    const dayNum = date.getDate();
+                    const accent = accentFor(event.id);
+                    return (
+                      <React.Fragment key={event.id}>
+                        {index > 0 ? (
+                          <div
+                            aria-hidden
+                            style={{
+                              height: 1,
+                              margin: '1px 18px',
+                              background: 'rgba(201, 149, 158, 0.28)',
+                            }}
+                          />
+                        ) : null}
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: isRtl ? 'auto 1fr' : '1fr auto',
+                            alignItems: 'center',
+                            gap: isRtl ? 12 : 10,
+                            textAlign: isRtl ? 'right' : 'left',
+                            direction: isRtl ? 'rtl' : 'ltr',
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <p
+                              style={{
+                                margin: 0,
+                                fontFamily: isRtl ? "'Amiri', serif" : "'Cormorant Garamond', serif",
+                                fontSize: isRtl ? 17 : 20,
+                                lineHeight: 1.15,
+                                fontWeight: 600,
+                                color: theme.colors.ink,
+                              }}
+                            >
+                              {name}
+                            </p>
+                            <p
+                              style={{
+                                margin: isRtl ? '2px 0 0' : '1px 0 0',
+                                fontSize: isRtl ? 12 : 10,
+                                letterSpacing: isRtl ? '0.02em' : '0.12em',
+                                color: accent,
+                                fontWeight: 600,
+                                fontFamily: isRtl ? "'Amiri', serif" : undefined,
+                                textTransform: isRtl ? 'none' : 'uppercase',
+                              }}
+                            >
+                              {dayLabel}
+                            </p>
+                          </div>
+                          <p
+                            style={{
+                              margin: 0,
+                              fontFamily: "'Cormorant Garamond', serif",
+                              fontSize: isRtl ? 24 : 28,
+                              lineHeight: 1,
+                              fontWeight: 600,
+                              color: theme.colors.ink,
+                              letterSpacing: '0.02em',
+                              whiteSpace: 'nowrap',
+                              display: 'inline-flex',
+                              alignItems: 'baseline',
+                              gap: 6,
+                            }}
+                          >
+                            {isRtl ? (
+                              <>
+                                <span style={{ fontSize: 14, color: theme.colors.inkSoft }}>جنوری</span>
+                                <span>{dayNum}</span>
+                              </>
+                            ) : (
+                              <>
+                                {dayNum}
+                                <span style={{ fontSize: 13, letterSpacing: '0.1em', color: theme.colors.inkSoft }}>
+                                  JAN
+                                </span>
+                              </>
+                            )}
+                          </p>
+                        </div>
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+
+                <div
+                  aria-hidden
                   style={{
-                    margin: '2px 0 0',
-                    fontSize: isRtl ? 13 : 11,
-                    letterSpacing: isRtl ? '0.04em' : '0.16em',
-                    color: theme.colors.inkSoft,
-                    fontWeight: 600,
-                    fontFamily: isRtl ? "'Amiri', serif" : undefined,
+                    width: 48,
+                    height: 1,
+                    margin: isRtl ? '8px 0 6px' : '12px 0 8px',
+                    background: `linear-gradient(90deg, transparent, ${pink.main}, transparent)`,
+                    flexShrink: 0,
                   }}
-                >
-                  {isRtl ? `${dayLabel} · جنوری ۲۰۲۷` : `${dayLabel} · JAN 2027`}
-                </p>
+                />
                 <p
                   style={{
-                    margin: '6px 0 0',
+                    margin: 0,
                     color: theme.colors.muted,
                     fontSize: isRtl ? 12 : 10,
                     letterSpacing: isRtl ? '0.04em' : '0.18em',
                     fontFamily: isRtl ? "'Amiri', serif" : undefined,
                     fontWeight: 600,
+                    flexShrink: 0,
                   }}
                 >
                   {isRtl ? 'لاہور' : 'LAHORE'}
@@ -597,6 +699,9 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
                     height: '100%',
                     zIndex: 2,
                     pointerEvents: 'none',
+                    touchAction: 'none',
+                    transform: 'translateZ(0)',
+                    willChange: 'contents',
                   }}
                 />
               )}
@@ -658,16 +763,19 @@ export default function ScratchReveal({ locale }: { locale: Locale }) {
             // Keep the same vertical space so snap doesn't jump to page 1 after reveal.
             <div aria-hidden style={{ height: 50, marginTop: 2, marginBottom: 4, flexShrink: 0 }} />
           )}
-
-          <ScrollDownHint
-            locale={locale}
-            placement="afterContent"
-            color={pink.main}
-            glow="rgba(201, 149, 158, 0.55)"
-            style={{ marginTop: isRevealed ? 14 : 10, paddingBottom: 12 }}
-          />
         </div>
       </div>
+
+      {/*
+        Pin to the page footer — afterContent was clipped by the locked reveal-date-card
+        height once tap-to-reveal swapped the button for a spacer.
+      */}
+      <ScrollDownHint
+        locale={locale}
+        placement="footer"
+        color={pink.main}
+        glow="rgba(201, 149, 158, 0.55)"
+      />
     </Card>
   );
 }

@@ -6,13 +6,21 @@ import { theme } from '@/config/theme';
 import type { Locale } from '@/config/translations';
 import RsvpCard from '@/components/rsvp/RsvpCard';
 
+/** Keep the intentional ~1.2× close — do not slow this back to 1.0. */
+const CLOSING_RATE = 1.2;
+/**
+ * Pop RSVP while curtains are mid-close (media seconds), not after the clip ends.
+ * Closing clip is ~10s; curtains darken hard through ~0–5s — 2.8s is mid-motion.
+ */
+const RSVP_AT_MEDIA_S = 2.8;
 /** Guests must reach RSVP even if the closing clip stalls on a slow network. */
-const RSVP_FAILSAFE_MS = 9000;
+const RSVP_FAILSAFE_MS = 5500;
 
 export default function ClosingStage({ locale }: { locale: Locale }) {
   const sectionRef = useRef<HTMLElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const onPage = useRef(false);
+  const rsvpOpened = useRef(false);
   const failSafeRef = useRef<number | null>(null);
   const [showRsvp, setShowRsvp] = useState(false);
 
@@ -27,6 +35,8 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
   };
 
   const openRsvp = () => {
+    if (rsvpOpened.current) return;
+    rsvpOpened.current = true;
     clearFailSafe();
     setShowRsvp(true);
   };
@@ -43,9 +53,6 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
   useEffect(() => {
     const el = sectionRef.current;
     if (!el) return;
-
-    // Keep the intentional ~1.2× close — do not slow this back to 1.0.
-    const CLOSING_RATE = 1.2;
 
     const prepareVideo = (video: HTMLVideoElement) => {
       video.muted = true;
@@ -93,6 +100,7 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
       const video = videoRef.current;
       if (!video || onPage.current) return;
       onPage.current = true;
+      rsvpOpened.current = false;
       setShowRsvp(false);
       prepareVideo(video);
       try {
@@ -111,8 +119,14 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
     const onRateChange = () => {
       if (videoEl) holdRate(videoEl);
     };
+    // Mid-curtain: open RSVP while the close keeps playing behind the form.
+    const onTimeUpdate = () => {
+      if (!videoEl || !onPage.current || rsvpOpened.current) return;
+      if (videoEl.currentTime >= RSVP_AT_MEDIA_S) openRsvp();
+    };
     videoEl?.addEventListener('playing', onPlaying);
     videoEl?.addEventListener('ratechange', onRateChange);
+    videoEl?.addEventListener('timeupdate', onTimeUpdate);
 
     const warmObserver = new IntersectionObserver(
       (entries) => {
@@ -120,13 +134,6 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
         const video = videoRef.current;
         if (!entry?.isIntersecting || !video || onPage.current) return;
         prepareVideo(video);
-        if (video.readyState === 0) {
-          try {
-            video.load();
-          } catch {
-            // ignore
-          }
-        }
       },
       { root: null, rootMargin: '140% 0px', threshold: 0 }
     );
@@ -146,6 +153,7 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
         if (!entry.isIntersecting || entry.intersectionRatio < 0.12) {
           if (!onPage.current) return;
           onPage.current = false;
+          rsvpOpened.current = false;
           clearFailSafe();
           video.pause();
           try {
@@ -175,6 +183,7 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
       observer.disconnect();
       videoEl?.removeEventListener('playing', onPlaying);
       videoEl?.removeEventListener('ratechange', onRateChange);
+      videoEl?.removeEventListener('timeupdate', onTimeUpdate);
       clearFailSafe();
     };
   }, [videoSrc]);
@@ -199,7 +208,6 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
         preload="auto"
         controls={false}
         disablePictureInPicture
-        onEnded={openRsvp}
         onError={() => {
           // Retry once on media error, then still offer RSVP.
           const video = videoRef.current;
@@ -235,7 +243,8 @@ export default function ClosingStage({ locale }: { locale: Locale }) {
               alignItems: 'center',
               justifyContent: 'center',
               padding: 'max(14px, env(safe-area-inset-top, 0px)) 14px max(14px, env(safe-area-inset-bottom, 0px))',
-              background: 'linear-gradient(180deg, rgba(10,4,6,0.28), rgba(10,4,6,0.62))',
+              // Light enough that the curtains keep reading while they finish closing.
+              background: 'linear-gradient(180deg, rgba(10,4,6,0.18), rgba(10,4,6,0.48))',
               overflowY: 'auto',
               WebkitOverflowScrolling: 'touch',
             }}
